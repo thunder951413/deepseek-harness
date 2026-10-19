@@ -1,0 +1,12 @@
+# A client-only profile; the Harness runs in its ordinary Web process.
+- insert:
+    - id: tui-startup
+      name: '@deepseek-ai/dsh-tui-app/startup'
+    - id: tui
+      name: '@deepseek-ai/dsh-tui-app'
+      inject: [tuiStartup]
+      config:
+        session: !!js ctx.tuiStartup.session
+        connect: !!js ctx.tuiStartup.connect
+        backendProfile: !!js ctx.tuiStartup.backendProfile
+        port: !!js ctx.tuiStartup.port

@@ -1,0 +1,24 @@
+独立 DSH TUI / Independent DSH TUI
+
+准备已有的 dsh、Node.js 22.19+（22.x）或 24+，安装时需要 npm 网络。
+解压后执行：node install.mjs
+指定官方命令：node install.mjs --dsh /path/to/dsh
+启动：dsh tui
+安装器只安装 TUI 外部插件并配置 tui profile，不替换 dsh 或引擎。
+旧的 tui profile 清单会备份；其他自定义 bundle 需要使用新的 --profile 名称。
+官方 dsh 升级后直接运行 dsh tui。profile 和插件保存在 DSH_HOME 中。
+若换了命令位置，执行：node ~/.dsh/addons/dsh-tui/install.mjs --dsh /path/to/new/dsh
+设置过 DSH_HOME 时，将 ~/.dsh 换成该目录。
+直接连接已运行的服务：dsh tui --connect 'http://127.0.0.1:PORT/?token=...'
+连接模式退出时只关闭终端；默认模式退出时也关闭自己启动的后台。
+凭据、工作区和 Session 由官方后台管理，不随插件复制。
+当前已验证的 Harness 版本见 release.json；版本不同时安装器会警告，加 --require-match 则拒绝安装。接口兼容性检查失败时需要与该 dsh 版本对应的 TUI 发布包。
+
+Requires an existing dsh, Node.js 22.19+ (22.x) or 24+, and npm access during installation.
+Run node install.mjs, optionally with --dsh /path/to/dsh and --profile <name>.
+Start dsh tui. The installer adds only the terminal plugin and profile; it never replaces the engine.
+The profile and plugin persist in DSH_HOME across official dsh updates.
+Reattach with node ~/.dsh/addons/dsh-tui/install.mjs --dsh /path/to/new/dsh. Replace ~/.dsh when DSH_HOME is configured.
+--connect accepts a running Host launch URL and leaves that Host running on terminal exit.
+Default mode starts and owns an ordinary Web backend using the invoking dsh executable.
+See release.json for the verified Harness version. A different dsh version produces a warning; --require-match refuses it. An incompatible interface requires the terminal release built for that dsh version.

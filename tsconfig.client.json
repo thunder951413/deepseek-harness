@@ -22,6 +22,7 @@
     "apps/desktop/src/ipc.ts",
     "apps/desktop/src/update-overlay.ts",
     "apps/desktop/tests/**/*.client.spec.tsx",
+    "apps/cli/tests/profiles/tui/tests/remote.expected.e2e.ts",
     // Source-subpath test imports can arrive through workspace links whose
     // realpath semantics vary by host. Load package CSS declarations directly.
     "packages/client/*/src/css-modules.d.ts",
@@ -91,6 +92,7 @@
     { "path": "./packages/api/remotes/tsconfig.client.json" },
     { "path": "./packages/extensions/cordis-client-runner" },
     { "path": "./packages/extensions/ui-cordis" },
+    { "path": "./packages/bundle/tui-app" },
     { "path": "./packages/test-support/client-runtime" },
     { "path": "./packages/test-support/remote-mock" },
     { "path": "./packages/client/shortcuts/tsconfig.client.json" },

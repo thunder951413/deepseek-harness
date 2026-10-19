@@ -4251,6 +4251,41 @@ export type ToolPresentationMode = 'native' | 'ptc'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tools -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tui-app -->
+<a id="deepseek-aidsh-tui-app"></a>
+
+## `@deepseek-ai/dsh-tui-app`
+
+- `inject`: `tuiStartup`
+- `source`: [`packages/bundle/tui-app/src/index.ts:18`](../packages/bundle/tui-app/src/index.ts)
+
+```ts config-catalog
+/** Deployment-specific terminal history bounds. */
+export interface Config {
+  /** Existing conversation selected by the invocation. */
+  session?: string
+  /** Existing Host launch URL; omission starts an owned Web process. */
+  connect?: string
+  /** Stock profile used for the owned backend(). */
+  backendProfile: string
+  /** Listener port for an owned backend(). */
+  port: number
+  /** Maximum startup and compatibility-check interval. */
+  startupTimeoutMs: number
+  /** Maximum graceful subprocess shutdown interval. */
+  shutdownTimeoutMs: number
+  /** Maximum messages requested when opening a conversation. */
+  historyMessages: number
+  /** Maximum characters retained in the visible transcript. */
+  transcriptCharacters: number
+  /** Maximum directory depth searched by file completion. */
+  completionDepth: number
+  /** Maximum project file paths retained for completion. */
+  completionFiles: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tui-app -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-typert-loader -->
 <a id="deepseek-aidsh-typert-loader"></a>
 

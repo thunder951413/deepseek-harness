@@ -203,6 +203,7 @@
       "@deepseek-ai/dsh-agent/brand": ["./packages/core/agent/src/brand.ts"],
       "@deepseek-ai/dsh-headless/startup": ["./packages/bundle/headless/src/startup.ts"],
       "@deepseek-ai/dsh-web-app/startup": ["./packages/bundle/web-app/src/startup.ts"],
+      "@deepseek-ai/dsh-tui-app/startup": ["./packages/bundle/tui-app/src/startup.ts"],
       "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
       // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
@@ -540,6 +541,7 @@
       "@deepseek-ai/dsh-tool-working-directory": ["./packages/session/tool-working-directory/src"],
       "@deepseek-ai/dsh-tool-workspace-dependencies": ["./packages/skill/tool-workspace-dependencies/src"],
       "@deepseek-ai/dsh-tools": ["./packages/core/tools/src"],
+      "@deepseek-ai/dsh-tui-app": ["./packages/bundle/tui-app/src"],
       "@deepseek-ai/dsh-user-approval": ["./packages/interaction/user-approval/src"],
       "@deepseek-ai/dsh-user-questions": ["./packages/interaction/user-questions/src"],
       "@deepseek-ai/dsh-web": ["./packages/web/web/src"],

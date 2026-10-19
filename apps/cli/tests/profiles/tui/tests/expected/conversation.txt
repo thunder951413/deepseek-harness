@@ -1,0 +1,39 @@
+
+Assistant
+Reply to reject
+
+── completed ──
+
+You
+approve
+
+● Bash(printf tui-proof > tui-proof.txt)
+  ⎿ (no output)
+
+Assistant
+Reply to approve
+
+── completed ──
+
+You
+wait
+
+Assistant
+Waiting for cancellation
+
+── aborted ──
+
+You
+again
+
+Assistant
+Reply to again
+
+── completed ──
+
+› Message · Enter send · Shift+Enter new line
+
+
+Model: terminal-fixture/fixture · Reasoning: low
+Cache: 75% · Output: <speed> tok/s · Balance: 未提供
+/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit

@@ -223,6 +223,8 @@
   // and the package test glob above needs no per-file entry.
   "exclude": [
     "apps/desktop/tests/keyboard.spec.ts",
+    // Imports the terminal's Client-face Web Remote adapter, so the Client aggregate checks it.
+    "apps/cli/tests/profiles/tui/tests/remote.expected.e2e.ts",
     "packages/client/*/src/**",
     "benchmarks/**/*.client.ts",
     "benchmarks/**/*.client.tsx",

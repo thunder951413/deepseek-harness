@@ -1,0 +1,63 @@
+name: Terminal compatibility
+
+# Builds the terminal plugin from this checkout, installs it with its real installer into a
+# scratch DSH_HOME, and probes it against a published @deepseek-ai/dsh release. It keeps the
+# terminal's Web Remote adapter honest as Harness releases move: a wire change that the tolerant
+# readers cannot absorb fails here before users meet it. Keyless: no model or API key is used.
+on:
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'Published @deepseek-ai/dsh version or dist-tag to probe'
+        default: latest
+        required: true
+  schedule:
+    # Weekly, off the top-of-hour cron stampede.
+    - cron: '41 2 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: pnpm/action-setup@v5.0.0
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build artifacts
+        run: pnpm run build:artifacts
+
+      - name: Build the terminal plugin
+        run: pnpm exec tsx scripts/release/create-tui-plugin.ts --out "$RUNNER_TEMP/tui-release" --version 0.0.0-compat
+
+      - name: Install the published dsh under test
+        env:
+          DSH_VERSION: ${{ inputs.dsh_version || 'latest' }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/dsh-under-test"
+          npm install --prefix "$RUNNER_TEMP/dsh-under-test" "@deepseek-ai/dsh@${DSH_VERSION}"
+          printf '#!/bin/sh\nexec node %s "$@"\n' "$RUNNER_TEMP/dsh-under-test/node_modules/@deepseek-ai/dsh/lib/bin.js" > "$RUNNER_TEMP/dsh"
+          chmod +x "$RUNNER_TEMP/dsh"
+          "$RUNNER_TEMP/dsh" --version
+
+      - name: Probe
+        run: pnpm exec tsx scripts/release/verify-tui-compat.ts --release "$RUNNER_TEMP/tui-release" --dsh "$RUNNER_TEMP/dsh"

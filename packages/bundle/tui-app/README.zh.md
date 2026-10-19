@@ -1,0 +1,99 @@
+---
+description: "通过 dsh tui 启动终端编程助手及其共享的 Web 服务。"
+kind: "package-bundle"
+---
+
+# @deepseek-ai/dsh-tui-app
+
+[English](README.md) | 中文
+
+## 概述
+
+运行 `dsh tui`，即可在终端中对话、查看工具执行、回答问题并审批操作。命令自动启动本地回环地址上的 Web 服务；通过其 URL 可在浏览器中打开相同的对话。两个界面共享模型设置、工具和持久化的 Session 历史。仅含客户端的 `tui` profile 挂载此 bundle；后台在另一个进程中使用现有 Web profile。
+
+## 目录
+
+- [使用此包](#use-this-package)
+- [理解实现](#understand-the-implementation)
+- [进一步探索](#further-exploration)
+- [模型体验](#model-experience)
+- [已知限制与后续工作](#known-limitations-and-deferred-work)
+
+<a id="use-this-package"></a>
+## 使用本包
+
+使用 `node install.mjs --dsh <已有的-dsh-命令>` 安装独立分发包。安装器添加 `@surfing/dsh-tui`，并在仅含客户端的 profile 中只选择该 bundle；已有终端 profile 的清单会备份。若 profile 选择了其他无关 bundle，安装器会拒绝修改，请使用其他 `--profile` 名称。分发生成命令 `pnpm exec tsx scripts/release/create-tui-plugin.ts --out <新目录> --version <终端版本>` 使用构建产物，内嵌当前 DSH 远程客户端和编解码器，只将 Cordis 保留为运行时 peer。安装包不包含智能体引擎。源码工作区名称仍为 `@deepseek-ai/dsh-tui-app`。
+
+官方 `dsh` 升级后，profile 和其中的插件仍保存在 `DSH_HOME` 下，直接启动同一个终端 profile 即可。使用相同数据目录的新命令无需修改源码或重建运行时；需要重新接入时，用保存的安装器指定 `--dsh <命令>`。`release.json` 记录已验证的 Harness 版本。`dsh --version` 与之不同时安装器会警告，加 `--require-match` 则拒绝安装。兼容性取决于 Web 协议、启动器和 Cordis 接口，并不保证所有未来版本都适用。启动时会认证并要求会话列表可用。终端对其他返回值采用宽容读取：只取显示用的字段，忽略新增字段，可选数据缺失时显示 `未提供`。Harness 缺少模型目录、用量读数、账户余额或用户提问时，只失去对应功能。会话列表、创建、跟随或发送接口变化或缺失时会报告失败，需要与该 Harness 对应的终端发布包。每周运行的 `tui-compat` 工作流会把当前构建安装到临时 `DSH_HOME`，并对已发布的 `@deepseek-ai/dsh` 做探测。安装不迁移用户数据。Session 格式迁移仍由后台负责，旧后台不保证能读取新版迁移后的数据。
+
+在项目目录中运行 `dsh tui`。启动后直接打开新对话；使用 `/resume` 或 Ctrl-R 搜索已有 Session；`dsh tui --session <id>` 可直接打开指定对话。通过 Web 界面配置模型凭据；`/web` 显示其登录链接，标题不显示该链接，因为它相当于密码。`--backend-profile <name>` 选择自启后台的 profile（默认 `web`）；`--connect <launch-url>` 连接已有服务；`--port <port>` 指定自启后台的监听端口；省略时由操作系统分配。新对话归入启动目录对应的工作区；如果相同规范路径已有工作区，则复用，否则创建。输入和输出都必须是交互式终端。
+
+| 按键 | 操作 |
+|---|---|
+| Ctrl-S | 发送编辑框内容或确认文本回答 |
+| Enter | 发送消息、确认文本回答或选择菜单项 |
+| Shift+Enter | 在编辑框中换行 |
+| Ctrl-N | 在启动目录中创建对话 |
+| Ctrl-R | 选择持久化的对话 |
+| 终端滚动历史 | 查看较早的对话输出 |
+| Ctrl-O | 查看工具参数和输出 |
+| Ctrl-C | 停止生成；空闲时先清空编辑框，连按两次退出 |
+| Ctrl-Q | 退出并关闭本程序的 Web 服务 |
+| Escape | 关闭菜单；关闭审批菜单会拒绝操作 |
+
+对话使用终端的普通屏幕和原生滚动历史。编辑框支持移动光标、修改中间文字、多行粘贴和上下方向键浏览输入历史。输入 `/` 补全命令，输入 `@` 查找项目文件；选择文件后会将带引号的路径插入消息，模型使用文件工具读取。文件发现遵循 `.gitignore`，排除隐藏文件和 `node_modules`。`/new`（或 `/clear`）开始另一段对话，`/resume` 搜索历史，`/tools` 打开工具详情，`/web` 显示浏览器登录链接，`/help` 列出快捷键，`/exit` 关闭应用。
+
+工具调用显示为一行，例如 `Bash(ls)`、`Read(path)`、`Edit(path)` 或 `Write(path)`，带状态标记和结果的前几行。编辑会显示删除和新增的行。模型的任务列表渲染为就地更新的清单，推理内容以暗色缩略显示，运行指示器显示已用时间。其他工具显示名称和首个参数。
+
+输入 `/model` 选择已配置的供应商和模型，输入 `/reasoning` 选择该模型公布的推理强度，输入 `/stats`（或 `/cost`）查看整个会话的用量并刷新账户余额。这些命令只在终端本地执行。模型切换作用于下一次模型请求，并与网页选择器一样保存默认选择。供应商、API Key 和账户登录继续通过显示的 Web URL 配置。
+
+编辑框下方的紧凑状态区显示下一次请求的模型、推理强度、整个会话的缓存命中率、平均输出速度，以及已登录 DeepSeek 账户的钱包余额。命中率的分母为未缓存输入、缓存读取和缓存写入 Token 之和。速度为供应商报告的输出 Token 数除以生成时间，不含首 Token 前等待和工具执行时间。缺失数据显示 `未提供`，查询失败会显示重试方式。余额在账户变化、每轮结束和 `/stats` 时刷新；充值与赠送钱包分别保留币种和小数精度。不查询第三方 API Key 的余额。
+
+默认启动时，终端在独立进程中通过当前 `dsh` 命令运行 `--profile web --no-open`。退出时通过正常关闭流程停止该后台。`--connect <launch-url>` 连接已有后台，终端退出后保留后台运行。重新运行 `dsh tui` 后，使用 `/resume` 继续这些 Session。如果其他进程持有某个 Session 的写锁，需要先释放，当前进程才能继续该 Session。
+
+终端应答其所选 Session 的审批和提问请求。其他 Session 的请求继续交给 Web 应答器。审批默认拒绝；只有 **Allow once** 会授权操作。关闭应用会取消待处理输入。操作失败显示在编辑区旁，发送失败时保留编辑框内容。
+
+配置补丁可设置 `tui` 行的 `historyMessages`（默认 200）和 `transcriptCharacters`（默认 200000）。文件补全使用 `completionDepth`（默认 8）和 `completionFiles`（默认 10000）限制遍历深度和保留的索引。这些设置限制显示的历史范围，不会删除持久化日志。
+
+<a id="understand-the-implementation"></a>
+## 理解实现
+
+<details>
+<summary>实现细节 — 点击展开</summary>
+
+[bundle 补丁](cordis.patch.yml) 只挂载终端启动器和渲染器。[端口](src/port.ts) 是终端自己对 Harness 的词汇表；其中、应用、控制和界面代码里都不出现 Harness 包。[Web 远程适配器](src/web-remote.ts) 是唯一使用线上协议的文件：它通过 `/connect` 交换启动令牌，在已有的认证 HTTP/WebSocket 客户端中挂载 Session、Workspace、Account 和 User Question 接口，应答转发的审批和提问，并把 Harness 没有的方法报告为不支持的功能。[读取器](src/readers.ts) 把每个线上返回值转换为端口类型，容忍新增字段和格式错误的可选数据。[日志投影](src/wire-transcript.ts) 将事件转为终端自己的显示块，其[工具摘要](src/tool-view.ts)对未知工具回退为通用标题。界面组件不读取 Session 日志或访问 Host 服务。[后台进程所有者](src/server.ts) 启动普通 Web profile 并等待认证 URL；终端不会关闭外部连接的 Host。
+
+终端渲染和编辑使用 `@earendil-works/pi-tui` 的普通屏幕模式。Markdown 使用其渲染器和 `cli-highlight`。提问和可搜索列表临时替换编辑框，同时保留草稿。释放时恢复终端和控制台，取消文件补全和 Remote 流，等待正在处理的回答，并关闭自身启动的后台。
+
+</details>
+
+<a id="further-exploration"></a>
+## 进一步探索
+
+- [CLI 配置](../../../apps/cli/README.zh.md)
+- [Web 应用](../web-app/README.zh.md)
+- [Bundle 导航](../README.zh.md)
+
+<a id="model-experience"></a>
+## 模型体验
+
+Indirectly, through 共享的 Session 控制器及 Web 配置组合的工具。此 bundle 不提供模型提示词或工具 schema。
+
+#### KV Cache 影响
+
+显示或选择对话不会增加模型请求。提交的消息使用共享 Session 历史；前缀缓存是否可用由模型提供商决定。
+
+## 已知限制与延期工作
+
+<a id="known-limitations-and-deferred-work"></a>
+
+- 独立包目前依赖现有 Web Remote 协议、生成的客户端描述、Cordis 和 profile 启动器。Remote 协议尚未稳定，也没有版本协商；兼容性靠宽容读取和为每个 Harness 版本构建的终端发布包维持，不保证兼容任意未来协议变更。只有 `bash`、`str_replace_editor` 和 `todo_write` 有专门的工具摘要。通过显示的 URL 可在浏览器中访问后台。图片及丰富的 Web 插件卡片仍可在浏览器中查看；终端工具结果以文本显示。对话记录显示有界的近期历史窗口。会话选择器列出标识和目录。终端文案为英文。
+
+### 开发备注
+
+<details>
+<summary>维护者工作背景 — 点击展开</summary>
+
+无。
+
+</details>

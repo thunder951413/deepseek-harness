@@ -250,6 +250,11 @@ export default defineConfig({
         // harness the jsdom lane doesn't cover yet. TODO(gui): cover and
         // remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        // The terminal's application, renderer, and Web Remote adapter execute in a spawned pty
+        // child against a real Web backend, which parent-process V8 coverage cannot observe;
+        // apps/cli/tests/profiles/tui/tests/*.expected.e2e.ts drives them end to end, and the
+        // pure readers, controls, transcript, and tool views stay under the per-file gate.
+        'packages/bundle/tui-app/src/{index,ui,web-remote}.ts',
         // Electron guest integration retains its unit specs; per-file coverage
         // is deferred until a native Electron harness covers guest behavior.
         'packages/client/ui-sidebar-browser/src/client/electron/**',
