@@ -15,10 +15,8 @@ export async function createTuiPlugin(root: string, output: string, version: str
   if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/u.test(version)) throw new Error('Expected a package version')
   if (existsSync(output)) throw new Error(`Output already exists: ${output}`)
   const source = join(root, 'packages/bundle/tui-app')
-  const owner = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as {
-    version: string
-    dependencies: Record<string, string>
-  }
+  const owner = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+  const harness = JSON.parse(readFileSync(join(root, 'apps/cli/package.json'), 'utf8')) as { version: string }
   const cordis = JSON.parse(readFileSync(join(root, 'vendor/cordis/package.json'), 'utf8')) as { version: string }
   const stage = join(output, 'package')
   mkdirSync(stage, { recursive: true })
@@ -52,7 +50,7 @@ export async function createTuiPlugin(root: string, output: string, version: str
   copyFileSync(join(root, 'scripts/release/tui-plugin/INSTALL.txt'), join(output, 'INSTALL.txt'))
   const digest = createHash('sha256').update(readFileSync(join(output, 'plugin.tgz'))).digest('hex')
   writeFileSync(join(output, 'release.json'), `${JSON.stringify({ package: '@surfing/dsh-tui', version,
-    sha256: digest, testedHarness: owner.version, protocol: 'Harness Web Remote', id: `dsh-tui-${version}-${digest.slice(0, 12)}` }, null, 2)}\n`)
+    sha256: digest, testedHarness: harness.version, protocol: 'Harness Web Remote', id: `dsh-tui-${version}-${digest.slice(0, 12)}` }, null, 2)}\n`)
   rmSync(stage, { recursive: true, force: true })
   console.log(`TUI plugin: ${output}; engine supplied by the existing dsh installation`)
 }

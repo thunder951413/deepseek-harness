@@ -22,7 +22,7 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## 使用本包
 
-使用 `node install.mjs --dsh <已有的-dsh-命令>` 安装独立分发包。安装器添加 `@surfing/dsh-tui`，并在仅含客户端的 profile 中只选择该 bundle；已有终端 profile 的清单会备份。若 profile 选择了其他无关 bundle，安装器会拒绝修改，请使用其他 `--profile` 名称。分发生成命令 `pnpm exec tsx scripts/release/create-tui-plugin.ts --out <新目录> --version <终端版本>` 使用构建产物，内嵌当前 DSH 远程客户端和编解码器，只将 Cordis 保留为运行时 peer。安装包不包含智能体引擎。源码工作区名称仍为 `@deepseek-ai/dsh-tui-app`。
+在本仓库的检出目录中运行 `scripts/setup-tui.sh`（macOS 和 Linux）。它会安装依赖、构建、写入一个运行该检出目录 CLI 的 `dsh` 命令（`--name` 和 `--bin-dir` 可指定其他名称或位置），并安装由同一提交构建的插件，因此终端与其 Harness 始终匹配；更新检出目录后再运行一次即可。要把终端加到已有的 `dsh` 上，使用独立分发包：`node install.mjs --dsh <已有的-dsh-命令>`。安装器添加 `@surfing/dsh-tui`，并在仅含客户端的 profile 中只选择该 bundle；已有终端 profile 的清单会备份。若 profile 选择了其他无关 bundle，安装器会拒绝修改，请使用其他 `--profile` 名称。分发生成命令 `pnpm exec tsx scripts/release/create-tui-plugin.ts --out <新目录> --version <终端版本>` 使用构建产物，内嵌当前 DSH 远程客户端和编解码器，只将 Cordis 保留为运行时 peer。安装包不包含智能体引擎。源码工作区名称仍为 `@deepseek-ai/dsh-tui-app`。
 
 官方 `dsh` 升级后，profile 和其中的插件仍保存在 `DSH_HOME` 下，直接启动同一个终端 profile 即可。使用相同数据目录的新命令无需修改源码或重建运行时；需要重新接入时，用保存的安装器指定 `--dsh <命令>`。`release.json` 记录已验证的 Harness 版本。`dsh --version` 与之不同时安装器会警告，加 `--require-match` 则拒绝安装。兼容性取决于 Web 协议、启动器和 Cordis 接口，并不保证所有未来版本都适用。启动时会认证并要求会话列表可用。终端对其他返回值采用宽容读取：只取显示用的字段，忽略新增字段，可选数据缺失时显示 `未提供`。Harness 缺少模型目录、用量读数、账户余额或用户提问时，只失去对应功能。会话列表、创建、跟随或发送接口变化或缺失时会报告失败，需要与该 Harness 对应的终端发布包。每周运行的 `tui-compat` 工作流会把当前构建安装到临时 `DSH_HOME`，并对已发布的 `@deepseek-ai/dsh` 做探测。安装不迁移用户数据。Session 格式迁移仍由后台负责，旧后台不保证能读取新版迁移后的数据。
 
