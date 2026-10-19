@@ -1,44 +1,32 @@
-/** Tool summaries keep known tools informative and unknown tools readable. */
+/** Tool titles keep known tools informative and unknown tools readable on one line. */
 import { expect, it } from 'vitest'
-import { resultPreview, toolCallView } from '../src/tool-view.ts'
+import { failureLine, toolTitle } from '../src/tool-view.ts'
 
-it('summarizes shell commands by their first line', () => {
-  expect(toolCallView('bash', JSON.stringify({ command: 'ls -la\nwc -l' }))).toEqual({ title: 'Bash(ls -la)', preview: [] })
+it('titles shell commands by their first line', () => {
+  expect(toolTitle('bash', JSON.stringify({ command: 'ls -la\nwc -l' }))).toBe('Bash(ls -la)')
+  expect(toolTitle('bash', JSON.stringify({ command: '   ' }))).toBe('Bash()')
 })
 
-it('summarizes editor commands and previews bounded changes', () => {
-  const edit = toolCallView('str_replace_editor', JSON.stringify({ command: 'str_replace', path: '/a', old_str: 'x\n'.repeat(6), new_str: 'y' }))
-  expect(edit.title).toBe('Edit(/a)')
-  expect(edit.preview).toEqual(['- x', '- x', '- x', '- x', '- … +3 lines', '+ y'])
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'view', path: '/a' })).title).toBe('Read(/a)')
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'create', path: '/a', file_text: 'a\nb' })))
-    .toEqual({ title: 'Write(/a)', preview: ['+ 2 lines'] })
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'create', path: '/a' })).preview).toEqual(['+ 1 lines'])
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'insert', path: '/a', new_str: 'z' })))
-    .toEqual({ title: 'Insert(/a)', preview: ['+ z'] })
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'insert', path: '/a' })).preview).toEqual(['+ '])
+it('titles editor commands by verb and path', () => {
+  const title = (command: string) => toolTitle('str_replace_editor', JSON.stringify({ command, path: '/a' }))
+  expect(['view', 'create', 'str_replace', 'insert'].map(title)).toEqual(['Read(/a)', 'Write(/a)', 'Edit(/a)', 'Insert(/a)'])
+  expect(title('bogus')).toBe('str_replace_editor(/a)')
+  expect(title('constructor')).toBe('str_replace_editor(/a)')
+  expect(toolTitle('str_replace_editor', JSON.stringify({ command: 'view' }))).toBe('str_replace_editor(view)')
 })
 
 it('falls back to the tool name and a leading argument for unknown tools and bad arguments', () => {
-  expect(toolCallView('search', JSON.stringify({ query: 'needle', limit: 3 })).title).toBe('search(needle)')
-  expect(toolCallView('search', JSON.stringify({ limit: 3, label: 'first' })).title).toBe('search(first)')
-  expect(toolCallView('search', JSON.stringify({ limit: 3 })).title).toBe('search')
-  expect(toolCallView('search', 'not json').title).toBe('search')
-  expect(toolCallView('search', '[1]').title).toBe('search')
-  expect(toolCallView('bash', '{}').title).toBe('bash')
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'bogus', path: '/a' })).title).toBe('str_replace_editor(/a)')
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'view' })).title).toBe('str_replace_editor(view)')
-  expect(toolCallView('x', JSON.stringify({ path: 'p'.repeat(200) })).title).toHaveLength(2 + 100 + 1)
+  expect(toolTitle('search', JSON.stringify({ query: 'needle', limit: 3 }))).toBe('search(needle)')
+  expect(toolTitle('search', JSON.stringify({ limit: 3, label: 'first' }))).toBe('search(first)')
+  expect(toolTitle('search', JSON.stringify({ limit: 3 }))).toBe('search')
+  expect(toolTitle('search', JSON.stringify({ a: '', b: 3 }))).toBe('search')
+  expect(toolTitle('search', 'not json')).toBe('search')
+  expect(toolTitle('search', '[1]')).toBe('search')
+  expect(toolTitle('bash', '{}')).toBe('bash')
+  expect(toolTitle('x', JSON.stringify({ path: 'p'.repeat(200) }))).toHaveLength(2 + 100 + 1)
 })
 
-it('removes control sequences and bounds result previews', () => {
-  expect(resultPreview('\x1b[2Jone\n\n\ttwo')).toEqual(['one', '  two'])
-  expect(resultPreview('1\n2\n3\n4\n5\n6')).toEqual(['1', '2', '3', '4', '… +2 lines · /tools'])
-  expect(resultPreview('')).toEqual([])
-})
-
-it('handles blank commands, missing text fields, and arguments with only blank values', () => {
-  expect(toolCallView('bash', JSON.stringify({ command: '   ' })).title).toBe('Bash()')
-  expect(toolCallView('str_replace_editor', JSON.stringify({ command: 'str_replace', path: '/a' })).preview).toEqual(['- ', '+ '])
-  expect(toolCallView('x', JSON.stringify({ a: '', b: 3 })).title).toBe('x')
+it('removes control sequences and keeps only the first line of a failure', () => {
+  expect(failureLine('\x1b[2J\n\n\tfirst\nsecond')).toEqual(['  first'])
+  expect(failureLine('')).toEqual([])
 })

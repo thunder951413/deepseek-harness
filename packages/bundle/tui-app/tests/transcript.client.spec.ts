@@ -22,8 +22,9 @@ describe('terminal transcript', () => {
       { id: '1', seq: 1, kind: 'tool', text: 'read_file(README.md)', state: 'failed', preview: ['File not found'],
         details: '{"path":"README.md"}\n\nFile not found' },
       { id: '3', seq: 3, kind: 'assistant', text: 'Choose another file.' },
-      { id: '4', seq: 4, kind: 'status', text: 'completed' },
     ])
+    transcript.accept(event('turn/end', { reason: { kind: 'aborted' } }, 5))
+    expect(transcript.view().entries.at(-1)).toMatchObject({ kind: 'status', text: 'aborted' })
   })
 
   it('settles a restored live answer once and clears it when switching sessions', () => {
@@ -44,17 +45,16 @@ describe('terminal transcript', () => {
     expect(terminalText('\x1b]8;;https://invalid.test\x07safe\x1b]8;;\x07\x1b[2J\x00')).toBe('safe')
   })
 
-  it('separates reasoning from the answer and gives each block a distinct identity', () => {
+  it('omits reasoning blocks and joins answer text and images', () => {
     const transcript = new TerminalTranscript(1000)
     transcript.accept(event('assistant/message', { message: { content: [
       { type: 'reasoning', text: 'considering' }, { type: 'text', text: 'Answer' }, { type: 'image' }, { type: 'other' },
     ] } }, 7))
-    expect(transcript.view().entries).toEqual([
-      { id: '7', seq: 7, kind: 'thinking', text: 'considering' },
-      { id: '7.1', seq: 7, kind: 'assistant', text: 'Answer\n[image]' },
-    ])
+    expect(transcript.view().entries).toEqual([{ id: '7', seq: 7, kind: 'assistant', text: 'Answer\n[image]' }])
     transcript.accept(event('assistant/message', { message: { content: 'plain' } }, 8))
     expect(transcript.view().entries.at(-1)).toMatchObject({ kind: 'assistant', text: 'plain' })
+    transcript.accept(event('assistant/message', { message: { content: [{ type: 'reasoning', text: 'only thoughts' }] } }, 9))
+    expect(transcript.view().entries).toHaveLength(2)
   })
 
   it('shows one task list per turn, updated in place, and hides the todo tool call', () => {
@@ -70,15 +70,17 @@ describe('terminal transcript', () => {
     expect(transcript.view().entries.map(entry => entry.id)).toEqual(['3', '7'])
   })
 
-  it('previews edits and keeps a proposed change after success, but shows the error after failure', () => {
+  it('shows one line per tool call, adding the first line of a failure only', () => {
     const transcript = new TerminalTranscript(2000)
     const args = JSON.stringify({ command: 'str_replace', path: '/p/a.ts', old_str: 'a', new_str: 'b' })
     transcript.accept(event('tool/call', { name: 'str_replace_editor', callId: 'e1', arguments: args }, 1))
-    expect(transcript.view().entries[0]).toMatchObject({ text: 'Edit(/p/a.ts)', state: 'running', preview: ['- a', '+ b'] })
+    expect(transcript.view().entries[0]).toMatchObject({ text: 'Edit(/p/a.ts)', state: 'running' })
+    expect(transcript.view().entries[0]).not.toHaveProperty('preview')
     transcript.accept(event('tool/result', { message: { toolCallId: 'e1', content: [{ type: 'text', text: 'done' }] } }, 2))
-    expect(transcript.view().entries[0]).toMatchObject({ state: 'done', preview: ['- a', '+ b'] })
+    expect(transcript.view().entries[0]).toMatchObject({ state: 'done' })
+    expect(transcript.view().entries[0]).not.toHaveProperty('preview')
     transcript.accept(event('tool/call', { name: 'str_replace_editor', callId: 'e2', arguments: args }, 3))
-    transcript.accept(event('tool/result', { message: { toolCallId: 'e2', isError: true, content: 'no match' } }, 4))
+    transcript.accept(event('tool/result', { message: { toolCallId: 'e2', isError: true, content: 'no match\nmore' } }, 4))
     expect(transcript.view().entries[1]).toMatchObject({ state: 'failed', preview: ['no match'] })
   })
 

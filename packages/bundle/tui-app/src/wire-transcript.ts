@@ -1,7 +1,7 @@
 /** Terminal text projection of the shared Web Session journal. */
 import { terminalText, type TerminalEntry, type TerminalView } from './transcript.ts'
 import type { Json, JournalEvent, StreamFrame } from './port.ts'
-import { resultPreview, toolCallView } from './tool-view.ts'
+import { failureLine, toolTitle } from './tool-view.ts'
 
 function record(value: Json | undefined): { readonly [key: string]: Json } {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as { readonly [key: string]: Json } : {}
@@ -15,18 +15,14 @@ function text(value: Json | undefined): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** Split message content into answer text and reasoning text. */
-function content(value: Json | undefined): { answer: string; reasoning: string } {
-  if (!Array.isArray(value)) return { answer: text(value), reasoning: '' }
-  const answer: string[] = []
-  const reasoning: string[] = []
-  for (const item of list(value)) {
+/** Join the text of message content; reasoning blocks are not displayed. */
+function content(value: Json | undefined): string {
+  if (!Array.isArray(value)) return text(value)
+  return list(value).map((item) => {
     const block = record(item)
-    if (block.type === 'text') answer.push(text(block.text))
-    else if (block.type === 'reasoning') reasoning.push(text(block.text))
-    else if (block.type === 'image') answer.push('[image]')
-  }
-  return { answer: answer.filter(Boolean).join('\n'), reasoning: reasoning.filter(Boolean).join('\n') }
+    if (block.type === 'text') return text(block.text)
+    return block.type === 'image' ? '[image]' : ''
+  }).filter(Boolean).join('\n')
 }
 
 const STATUSES = ['pending', 'in_progress', 'completed'] as const
@@ -76,17 +72,13 @@ export class TerminalTranscript {
     return { ...draft, text: body, ...details === undefined ? {} : { details } }
   }
 
-  private append(event: JournalEvent, drafts: readonly Draft[]): TerminalEntry[] {
-    const added = drafts.map((draft, index): TerminalEntry => ({
-      ...this.fit(draft), seq: event.seq, id: index === 0 ? String(event.seq) : `${event.seq}.${index}`,
-    }))
-    for (const entry of added) {
-      this.entries.push(entry)
-      this.characters += size(entry)
-      if (entry.kind === 'todo') this.todoEntry = entry
-    }
+  private append(event: JournalEvent, draft: Draft): TerminalEntry {
+    const entry: TerminalEntry = { ...this.fit(draft), seq: event.seq, id: String(event.seq) }
+    this.entries.push(entry)
+    this.characters += size(entry)
+    if (entry.kind === 'todo') this.todoEntry = entry
     this.trim()
-    return added
+    return entry
   }
 
   private replace(previous: TerminalEntry, draft: Draft): TerminalEntry | undefined {
@@ -111,19 +103,18 @@ export class TerminalTranscript {
    */
   accept(event: JournalEvent): void {
     const data = record(event.data)
-    const drafts: Draft[] = []
+    let shown: Draft | undefined
     switch (event.type) {
       case 'turn/start': this.working = true; this.todoEntry = undefined; break
       case 'user/message':
         if (record(data.source).kind === 'user' || record(data.source).kind === 'user-question-reply') {
-          drafts.push({ kind: 'user', text: content(data.content).answer })
+          shown = { kind: 'user', text: content(data.content) }
         }
         break
       case 'assistant/message': {
         this.live = ''
-        const { answer, reasoning } = content(record(data.message).content)
-        if (reasoning !== '') drafts.push({ kind: 'thinking', text: reasoning })
-        if (answer !== '') drafts.push({ kind: 'assistant', text: answer })
+        const answer = content(record(data.message).content)
+        if (answer !== '') shown = { kind: 'assistant', text: answer }
         break
       }
       case 'todo/write': {
@@ -134,7 +125,7 @@ export class TerminalTranscript {
         })
         const draft: Draft = { kind: 'todo', text: 'Todos', todos }
         const next = this.todoEntry === undefined ? undefined : this.replace(this.todoEntry, draft)
-        if (next === undefined) drafts.push(draft)
+        if (next === undefined) shown = draft
         else this.todoEntry = next
         break
       }
@@ -142,39 +133,38 @@ export class TerminalTranscript {
         const name = text(data.name)
         const callId = text(data.callId)
         if (name === 'todo_write') { this.hiddenCalls.add(callId); break }
-        const view = toolCallView(name, text(data.arguments))
-        const draft: Draft = { kind: 'tool', text: view.title, state: 'running', preview: view.preview, details: text(data.arguments) }
-        for (const entry of this.append(event, [draft])) this.byCall.set(callId, entry)
+        const draft: Draft = { kind: 'tool', text: toolTitle(name, text(data.arguments)), state: 'running', details: text(data.arguments) }
+        this.byCall.set(callId, this.append(event, draft))
         break
       }
       case 'tool/result': {
         const message = record(data.message)
         const callId = text(message.toolCallId)
         if (this.hiddenCalls.delete(callId)) break
-        const result = content(message.content).answer
+        const result = content(message.content)
         const failed = message.isError === true
         const previous = this.byCall.get(callId)
         this.byCall.delete(callId)
-        const view = previous?.preview ?? []
         const draft: Draft = { kind: 'tool', text: previous?.text ?? callId, state: failed ? 'failed' : 'done',
-          preview: failed || view.length === 0 ? resultPreview(result) : view,
-          details: `${previous?.details ?? ''}\n\n${result}`.trim() }
-        if (previous === undefined || this.replace(previous, draft) === undefined) this.append(event, [draft])
+          ...failed ? { preview: failureLine(result) } : {}, details: `${previous?.details ?? ''}\n\n${result}`.trim() }
+        if (previous === undefined || this.replace(previous, draft) === undefined) this.append(event, draft)
         break
       }
       case 'assistant/attempt':
         this.live = ''
-        drafts.push({ kind: 'status', text: 'Assistant attempt did not complete', details: JSON.stringify(data, null, 2) })
+        shown = { kind: 'status', text: 'Assistant attempt did not complete', details: JSON.stringify(data, null, 2) }
         break
       case 'turn/end': {
         this.working = false
         const reason = record(data.reason)
-        drafts.push({ kind: 'status', text: text(reason.kind) || 'Turn finished',
-          ...reason.kind === 'error' ? { details: text(record(reason.error).message) } : {} })
+        if (reason.kind !== 'completed') {
+          shown = { kind: 'status', text: text(reason.kind) || 'Turn finished',
+            ...reason.kind === 'error' ? { details: text(record(reason.error).message) } : {} }
+        }
         break
       }
     }
-    if (drafts.length > 0) this.append(event, drafts)
+    if (shown !== undefined) this.append(event, shown)
   }
 
   /**

@@ -1,6 +1,6 @@
 /** Usage accounting and unavailable readings retain the browser's semantics. */
 import { expect, it } from 'vitest'
-import { balanceText, sessionReadings } from '../src/readings.ts'
+import { balanceText, cents, sessionReadings } from '../src/readings.ts'
 
 it('uses disjoint billing buckets and decode time, preserving mixed-currency wallet precision', () => {
   const values = {
@@ -12,7 +12,7 @@ it('uses disjoint billing buckets and decode time, preserving mixed-currency wal
     bonusWallets: [{ currency: 'CNY', balance: '1.50' }],
   })
   expect(reading.compact).toContain('Cache: 60% · Output: 20 tok/s')
-  expect(reading.compact).toContain('CNY 12.3400 + USD 0.02 + CNY 1.50 bonus')
+  expect(reading.compact).toContain('CNY 12.34 + USD 0.02 + CNY 1.50 bonus')
   expect(reading.details).toContain('Input: 100 · Output: 40')
   expect(reading.details).toContain('Average first token: 3000 ms')
 })
@@ -26,4 +26,18 @@ it('distinguishes absent usage, empty usage, wallet failure, and a genuine full 
   expect(sessionReadings({ usage }, undefined, null).compact).toContain('Cache: 未提供')
   expect(sessionReadings({ usage: { ...usage, cacheRead: 100 } }, undefined, null).compact).toContain('Cache: 100%')
   expect(sessionReadings({ usage: { ...usage, cacheRead: 999, uncachedInput: 1 } }, undefined, null).compact).toContain('Cache: 99.9%')
+})
+
+it('rounds amounts to cents without floating point, halves away from zero, and keeps non-decimal text', () => {
+  expect(cents('56.0568228600000000')).toBe('56.06')
+  expect(cents('12.1950612000000000')).toBe('12.20')
+  expect(cents('12.3400')).toBe('12.34')
+  expect(cents('15')).toBe('15.00')
+  expect(cents('0.004')).toBe('0.00')
+  expect(cents('0.005')).toBe('0.01')
+  expect(cents('9.995')).toBe('10.00')
+  expect(cents('-0.004')).toBe('0.00')
+  expect(cents('-2.345')).toBe('-2.35')
+  expect(cents('123456789012345678.999')).toBe('123456789012345679.00')
+  expect(cents('n/a')).toBe('n/a')
 })

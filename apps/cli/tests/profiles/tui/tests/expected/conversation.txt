@@ -1,19 +1,21 @@
+Reply to free-question
+
+You
+reject
+
+● Bash(printf tui-proof > tui-proof.txt)
+  ⎿ Error: the user rejected escalating this command to "danger-full-access"; it stays denied, so stop …
 
 Assistant
 Reply to reject
-
-── completed ──
 
 You
 approve
 
 ● Bash(printf tui-proof > tui-proof.txt)
-  ⎿ (no output)
 
 Assistant
 Reply to approve
-
-── completed ──
 
 You
 wait
@@ -28,8 +30,6 @@ again
 
 Assistant
 Reply to again
-
-── completed ──
 
 › Message · Enter send · Shift+Enter new line
 

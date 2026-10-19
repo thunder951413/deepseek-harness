@@ -1,27 +1,17 @@
 /**
- * Terminal summaries of tool calls and results.
- * Known tools get a short title and a diff or result preview; every other tool, and any known
- * tool whose arguments do not parse, falls back to its name and first string argument, so new or
- * renamed Harness tools stay readable without a terminal release.
+ * One-line terminal titles for tool calls and the first line of a failure.
+ * Known tools get a short title; every other tool, and any known tool whose arguments do not
+ * parse, falls back to its name and first string argument, so new or renamed Harness tools stay
+ * readable without a terminal release.
  */
 import { terminalText } from './transcript.ts'
 
-/** Lines of a result or diff shown under a tool title. */
-const PREVIEW_LINES = 4
-/** Characters kept from one title or preview line. */
+/** Characters kept from one title or failure line. */
 const LINE_WIDTH = 100
 
-/** One tool call as the terminal presents it. */
-export interface ToolCallView {
-  /** Single-line label such as `Bash(ls -la)`. */
-  readonly title: string
-  /** Lines shown before the result arrives, such as a proposed edit. */
-  readonly preview: readonly string[]
-}
-
-function clip(value: string, width = LINE_WIDTH): string {
+function clip(value: string): string {
   const line = terminalText(value).replaceAll('\t', '  ')
-  return line.length > width ? `${line.slice(0, width - 1)}…` : line
+  return line.length > LINE_WIDTH ? `${line.slice(0, LINE_WIDTH - 1)}…` : line
 }
 
 function firstLine(value: string): string { return value.split('\n').find(line => line.trim() !== '') ?? '' }
@@ -31,63 +21,39 @@ function parse(args: string): Record<string, unknown> {
     const value: unknown = JSON.parse(args)
     return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
   } catch (_error) {
-    // Unparseable arguments are shown by the generic title built from the raw text.
+    // Unparseable arguments are shown by the generic title built from the tool name.
     return {}
   }
 }
 
 function string(value: unknown): string | undefined { return typeof value === 'string' && value !== '' ? value : undefined }
 
-function changeLines(prefix: '+' | '-', text: string): string[] {
-  const lines = text.split('\n')
-  const shown = lines.slice(0, PREVIEW_LINES).map(line => `${prefix} ${clip(line)}`)
-  return lines.length > PREVIEW_LINES ? [...shown, `${prefix} … +${lines.length - PREVIEW_LINES} lines`] : shown
-}
-
-function editorView(args: Record<string, unknown>): ToolCallView | undefined {
-  const path = string(args.path)
-  if (path === undefined) return undefined
-  switch (args.command) {
-    case 'view': return { title: `Read(${clip(path)})`, preview: [] }
-    case 'create': {
-      const lines = (string(args.file_text) ?? '').split('\n').length
-      return { title: `Write(${clip(path)})`, preview: [`+ ${lines} lines`] }
-    }
-    case 'str_replace': return { title: `Edit(${clip(path)})`,
-      preview: [...changeLines('-', string(args.old_str) ?? ''), ...changeLines('+', string(args.new_str) ?? '')] }
-    case 'insert': return { title: `Insert(${clip(path)})`, preview: changeLines('+', string(args.new_str) ?? '') }
-    default: return undefined
-  }
-}
+const EDITOR_VERBS = new Map([['view', 'Read'], ['create', 'Write'], ['str_replace', 'Edit'], ['insert', 'Insert']])
 
 /**
- * Summarize a tool call from its name and serialized arguments.
+ * Title a tool call from its name and serialized arguments.
  * @param name - tool name.
  * @param args - serialized arguments, possibly malformed.
- * @returns a title and any change preview.
+ * @returns a single-line label such as `Bash(ls -la)` or `Edit(/repo/a.ts)`.
  */
-export function toolCallView(name: string, args: string): ToolCallView {
+export function toolTitle(name: string, args: string): string {
   const parsed = parse(args)
-  if (name === 'bash') {
-    const command = string(parsed.command)
-    if (command !== undefined) return { title: `Bash(${clip(firstLine(command))})`, preview: [] }
-  }
-  if (name === 'str_replace_editor') {
-    const view = editorView(parsed)
-    if (view !== undefined) return view
-  }
-  const hint = string(parsed.description) ?? string(parsed.path) ?? string(parsed.query) ?? string(parsed.command)
+  const command = string(parsed.command)
+  if (name === 'bash' && command !== undefined) return `Bash(${clip(firstLine(command))})`
+  const path = string(parsed.path)
+  const verb = EDITOR_VERBS.get(command ?? '')
+  if (name === 'str_replace_editor' && path !== undefined && verb !== undefined) return `${verb}(${clip(path)})`
+  const hint = string(parsed.description) ?? path ?? string(parsed.query) ?? command
     ?? Object.values(parsed).find((value): value is string => typeof value === 'string' && value !== '')
-  return { title: hint === undefined ? name : `${name}(${clip(firstLine(hint))})`, preview: [] }
+  return hint === undefined ? name : `${name}(${clip(firstLine(hint))})`
 }
 
 /**
- * Keep the leading lines of a tool result.
+ * Keep the first line of a failed tool result.
  * @param content - result text.
- * @returns up to a few clipped lines, ending with a count of the omitted lines.
+ * @returns zero or one clipped line.
  */
-export function resultPreview(content: string): string[] {
-  const lines = terminalText(content).split('\n').filter(line => line.trim() !== '')
-  const shown = lines.slice(0, PREVIEW_LINES).map(line => clip(line))
-  return lines.length > PREVIEW_LINES ? [...shown, `… +${lines.length - PREVIEW_LINES} lines · /tools`] : shown
+export function failureLine(content: string): string[] {
+  const line = firstLine(terminalText(content))
+  return line === '' ? [] : [clip(line)]
 }

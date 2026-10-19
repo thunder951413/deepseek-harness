@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-`dsh tui` starts a new conversation in the invoking directory's Workspace instead of opening the conversation picker. It renders into the terminal's normal screen, supports native scrollback, and replaces full-screen dialogs with inline questions. Enter sends a message; Shift+Enter inserts a newline. Each tool call is one line with a state marker and the first lines of its result; full arguments and output are available through `/tools`. The header no longer prints the browser sign-in link because it works like a password; `/web` shows it. Ctrl-C stops generation, clears the editor when idle, and exits when pressed twice.
+`dsh tui` starts a new conversation in the invoking directory's Workspace instead of opening the conversation picker. It renders into the terminal's normal screen, supports native scrollback, and replaces full-screen dialogs with inline questions. Enter sends a message; Shift+Enter inserts a newline. Each tool call is one line with a state marker, plus the first line of an error when it fails; reasoning and normal turn endings are not shown; full arguments and output are available through `/tools`. The header no longer prints the browser sign-in link because it works like a password; `/web` shows it. Ctrl-C stops generation, clears the editor when idle, and exits when pressed twice.
 
 ## Migration
 

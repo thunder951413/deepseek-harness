@@ -28,18 +28,6 @@ class PromptEditor extends Editor {
   protected override renderBottomBorder(): string { return '' }
 }
 
-/** Leading lines of a long text, ending with the count of omitted lines. */
-function head(value: string, lines: number): string {
-  const all = value.split('\n')
-  return all.length <= lines ? value : `${all.slice(0, lines).join('\n')}\n… +${all.length - lines} lines`
-}
-
-function previewLine(line: string): string {
-  if (line.startsWith('+ ')) return color.green(line)
-  if (line.startsWith('- ')) return color.red(line)
-  return color.dim(line)
-}
-
 const TODO_MARK = { pending: '☐', in_progress: '◼', completed: '☒' } as const
 
 class MessageBlock extends Container {
@@ -54,13 +42,10 @@ class MessageBlock extends Container {
         this.addChild(new Text(color.bold('Assistant'), 0, 0))
         this.addChild(new Markdown(entry.text, 0, 0, markdownTheme))
         break
-      case 'thinking':
-        this.addChild(new Text(color.dim.italic(`✻ ${head(entry.text, 3).replaceAll('\n', '\n  ')}`), 0, 0))
-        break
       case 'tool': {
         const mark = entry.state === 'failed' ? color.red('●') : entry.state === 'running' ? color.yellow('●') : color.green('●')
         this.addChild(new Text(`${mark} ${color.bold(entry.text)}`, 0, 0))
-        for (const line of entry.preview ?? []) this.addChild(new Text(`  ${color.dim('⎿')} ${previewLine(line)}`, 0, 0))
+        for (const line of entry.preview ?? []) this.addChild(new Text(`  ${color.dim('⎿')} ${color.red(line)}`, 0, 0))
         break
       }
       case 'todo':

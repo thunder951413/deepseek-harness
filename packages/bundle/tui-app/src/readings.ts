@@ -6,7 +6,23 @@ import { formatCacheHitPercent, formatTokensPerSecond } from '@deepseek-ai/dsh-t
 export type BalanceReading = Balance | 'loading'
 
 /**
- * Render recharge and bonus wallets without combining currencies or losing decimal precision.
+ * Round a decimal amount to cents with integer arithmetic, halves rounding away from zero.
+ * @param value - decimal string from the account service.
+ * @returns the amount with two decimals, or the original text when it is not a decimal number.
+ */
+export function cents(value: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/u.exec(value.trim())
+  if (match === null) return value
+  const [, sign = '', whole = '0', fraction = ''] = match
+  const digits = `${fraction}000`
+  let units = BigInt(`${whole}${digits.slice(0, 2)}`)
+  if (digits.charCodeAt(2) >= '5'.charCodeAt(0)) units += 1n
+  const text = units.toString().padStart(3, '0')
+  return `${units === 0n ? '' : sign}${text.slice(0, -2)}.${text.slice(-2)}`
+}
+
+/**
+ * Render recharge and bonus wallets to the cent without combining currencies.
  * @param balance - latest account query outcome.
  * @returns display-safe wallet reading; callers strip terminal control sequences.
  */
@@ -15,8 +31,8 @@ export function balanceText(balance: BalanceReading): string {
   if (balance === null) return '未提供'
   if (balance.status === 'failed') return 'Query failed · /stats to retry'
   const wallets = [
-    ...balance.wallets.map(wallet => `${wallet.currency} ${wallet.balance}`),
-    ...balance.bonusWallets.map(wallet => `${wallet.currency} ${wallet.balance} bonus`),
+    ...balance.wallets.map(wallet => `${wallet.currency} ${cents(wallet.balance)}`),
+    ...balance.bonusWallets.map(wallet => `${wallet.currency} ${cents(wallet.balance)} bonus`),
   ]
   return wallets.length === 0 ? '未提供' : wallets.join(' + ')
 }

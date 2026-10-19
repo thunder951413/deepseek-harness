@@ -13,16 +13,16 @@ export function terminalText(value: string): string {
 
 /** One immutable block in the terminal's recent conversation window. */
 export interface TerminalEntry {
-  /** Stable display identity; an event that produces several blocks suffixes its sequence number. */
+  /** Stable display identity: the journal sequence number of the event that produced the block. */
   readonly id: string
   readonly seq: number
-  readonly kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'todo' | 'status'
+  readonly kind: 'user' | 'assistant' | 'tool' | 'todo' | 'status'
   readonly text: string
   /** Full arguments and output, shown on demand. */
   readonly details?: string
   /** Progress of a tool call. */
   readonly state?: 'running' | 'done' | 'failed'
-  /** Lines shown under a tool title: a proposed change or the start of its result. */
+  /** Lines shown under a tool title: the first line of a failure. */
   readonly preview?: readonly string[]
   /** Current task list for a `todo` entry. */
   readonly todos?: readonly { readonly content: string; readonly status: 'pending' | 'in_progress' | 'completed' }[]

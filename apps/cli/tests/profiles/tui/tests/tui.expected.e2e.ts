@@ -279,7 +279,8 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     await expect.poll(screen, { timeout: 20000 }).toContain('Cache: 75%')
     expect(screen()).toContain('Reasoning: low')
     child.write('again\r')
-    await expect.poll(screen, { timeout: 20000 }).toMatch(/Reply to again[\s│]*── completed ──/u)
+    await expect.poll(screen, { timeout: 20000 }).toContain('Reply to again')
+    await expect.poll(screen, { timeout: 20000 }).not.toContain('Working…')
     const restoredUrl = await launchUrl()
     url = restoredUrl
     const restoredAuth = await fetch(url, { redirect: 'manual' })
