@@ -286,7 +286,8 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     const restoredAuth = await fetch(url, { redirect: 'manual' })
     cookie = restoredAuth.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
     await expect.poll(screen, { timeout: 20000 }).toContain('Balance: 未提供')
-    const rendered = screen().replaceAll(sessionId, '<session>').replace(/Web: http:\/\/[^\s]+\//u, 'Web: <origin>/')
+    const rendered = screen().replaceAll(sessionId, '<session>').replaceAll(await realpath(home), '<cwd>').replaceAll(home, '<cwd>')
+      .replace(/Web: http:\/\/\S+ ·/u, 'Web: <origin> ·').replace(/ {2,}(?=DeepSeek Harness|<cwd>|Web: )/gu, '  ')
       .replace(/Output: (?:[\d.]+ tok\/s|未提供)/gu, 'Output: <speed> tok/s')
       .split('\n').map(line => line.trimEnd()).join('\n').replace(/\n+$/u, '') + '\n'
     await expect(rendered).toMatchFileSnapshot('./expected/conversation.txt')

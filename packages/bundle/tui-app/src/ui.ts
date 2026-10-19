@@ -7,6 +7,7 @@ import {
 } from '@earendil-works/pi-tui'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { terminalCommands, ProjectCompletion } from './completion.ts'
+import { renderStatus, type StatusItem } from './status-bar.ts'
 import { color, editorTheme, inputBackground, markdownTheme, selectTheme } from './theme.ts'
 import { terminalText, type TerminalEntry, type TerminalView } from './transcript.ts'
 
@@ -29,6 +30,16 @@ class PromptEditor extends Editor {
 }
 
 const TODO_MARK = { pending: '☐', in_progress: '◼', completed: '☒' } as const
+
+/** Readings, key hints, and the current conversation below the input block. */
+class StatusBar implements Component {
+  readings: string[] = []
+  right: StatusItem[] = []
+  private readonly hint = color.dim('/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit')
+
+  render(width: number): string[] { return renderStatus([...this.readings, this.hint], this.right, width, color.dim) }
+  invalidate(): void {}
+}
 
 class MessageBlock extends Container {
   constructor(entry: TerminalEntry) {
@@ -127,13 +138,12 @@ export interface TerminalActions {
 export class TerminalUi {
   private readonly terminal = new ScrollbackTerminal()
   private readonly tui = new TuiMainScreen(this.terminal, true)
-  private readonly header = new Text('DeepSeek Harness', 0, 0)
+  private readonly bar = new StatusBar()
   private readonly messages = new Container()
   private readonly live = new Container()
   private readonly liveMarkdown = new Markdown('', 0, 1, markdownTheme)
   private readonly workLabel = new Text('', 0, 0)
   private readonly interaction = new Container()
-  private readonly reading = new Text('', 0, 0)
   private readonly notice = new Text('', 0, 0)
   private readonly editor: PromptEditor
   private readonly editorBox: Box
@@ -178,8 +188,7 @@ export class TerminalUi {
     } })
     this.editorBox = this.inputBox(this.editor)
     this.interaction.addChild(this.editorBox)
-    for (const child of [this.header, new Spacer(1), this.messages, this.live, this.interaction, this.notice, this.reading,
-      new Text(color.dim('/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit'), 0, 0)]) this.tui.addChild(child)
+    for (const child of [this.messages, this.live, this.interaction, this.notice, this.bar]) this.tui.addChild(child)
     this.tui.addInputListener((data) => {
       if (matchesKey(data, 'ctrl+q') || (matchesKey(data, 'ctrl+d') && this.editor.getText() === '' && this.pending === undefined)) {
         actions.exit(); return { consume: true }
@@ -229,7 +238,11 @@ export class TerminalUi {
     this.editor.setAutocompleteProvider(this.completion)
     this.selected = id
     this.directory = directory
-    this.header.setText(`${color.bold.cyan('DeepSeek Harness')} · ${terminalText(id)}\n${terminalText(directory)}\nWeb: ${terminalText(new URL('/', url).origin)} · /web shows the sign-in link`)
+    this.bar.right = [
+      { text: terminalText(`DeepSeek Harness · ${id}`), keep: 'start' },
+      { text: terminalText(directory), keep: 'end' },
+      { text: terminalText(`Web: ${new URL('/', url).origin} · /web for the sign-in link`), keep: 'start' },
+    ]
     this.messages.clear()
     this.blocks.clear()
     this.live.clear()
@@ -307,7 +320,7 @@ export class TerminalUi {
    * @param text - current projection readings. */
   metrics(text: string): void {
     if (this.closed) return
-    this.reading.setText(color.dim(terminalText(text).replace('\nBalance:', ' · Balance:')))
+    this.bar.readings = terminalText(text).replace('\nBalance:', ' · Balance:').split('\n').map(line => color.dim(line))
     this.tui.requestRender()
   }
 

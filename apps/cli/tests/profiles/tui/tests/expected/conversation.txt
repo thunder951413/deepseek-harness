@@ -34,6 +34,6 @@ Reply to again
 › Message · Enter send · Shift+Enter new line
 
 
-Model: terminal-fixture/fixture · Reasoning: low
-Cache: 75% · Output: <speed> tok/s · Balance: 未提供
-/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit
+Model: terminal-fixture/fixture · Reasoning: low  DeepSeek Harness · <session>
+Cache: 75% · Output: <speed> tok/s · Balance: 未提供  <cwd>
+/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit  Web: <origin> · /web for the sign-in link
