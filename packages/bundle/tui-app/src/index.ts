@@ -10,6 +10,7 @@ import { SessionId, type HarnessPort, type PortAnswer, type PortQuestionRequest 
 import { WebRemotePort } from './web-remote.ts'
 import { createRequire } from 'node:module'
 import { observe } from './conversation.ts'
+import { sessionsIn } from './history.ts'
 import { startServer, type TerminalServer } from './server.ts'
 
 /** Stable terminal plugin identity. */
@@ -39,6 +40,8 @@ export interface Config {
   completionDepth: number
   /** Maximum project file paths retained for completion. */
   completionFiles: number
+  /** Reasoning effort applied to a new conversation when its model offers it; empty keeps the model's own default. */
+  defaultReasoningEffort: string
 }
 
 /** Terminal history limits, configurable through profile patches. */
@@ -53,6 +56,7 @@ export const Config: z<Config> = z.object({
   transcriptCharacters: z.natural().min(1).default(200000),
   completionDepth: z.natural().min(1).default(8),
   completionFiles: z.natural().min(1).default(10000),
+  defaultReasoningEffort: z.string().default('high'),
 })
 
 /**
@@ -135,11 +139,13 @@ export function apply(ctx: Context, config: Config): void {
     const id = await backend().createSession(process.cwd())
     lifetime.signal.throwIfAborted()
     await select(id)
+    await controls?.useDefaultEffort(id, config.defaultReasoningEffort)
   }
   const pick = async (): Promise<void> => {
-    const sessions = await backend().listSessions(lifetime.signal)
-    const index = await ui?.choose('Conversations · choose one to resume', [
-      '+ New conversation', ...sessions.map(item => `${item.running ? '▶ ' : ''}${item.title ?? 'Untitled'} · ${item.id} · ${item.cwd ?? ''}`),
+    const here = process.cwd()
+    const sessions = await sessionsIn(here, await backend().listSessions(lifetime.signal))
+    const index = await ui?.choose(`Conversations · choose one to resume\n\nIn ${here}; /resume <id> opens one from another directory.`, [
+      '+ New conversation', ...sessions.map(item => `${item.running ? '▶ ' : ''}${item.title ?? 'Untitled'} · ${item.id}`),
     ], lifetime.signal)
     if (index === 0) await create()
     else if (index !== undefined) {

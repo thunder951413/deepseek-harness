@@ -53,6 +53,25 @@ export class TerminalControls {
     await this.refreshProjections()
   }
 
+  /**
+   * Give a new conversation the configured reasoning effort when its next model offers it.
+   * An explicit selection already recorded for the conversation is never replaced.
+   * @param sessionId - conversation just created and selected.
+   * @param effort - effort identifier; empty keeps the model's own default.
+   * @returns after the selection is saved, or immediately when nothing applies.
+   */
+  async useDefaultEffort(sessionId: SessionId, effort: string): Promise<void> {
+    if (effort === '' || sessionId !== this.selected) return
+    if (this.catalog === undefined) await this.loadModels()
+    const selection = this.current()
+    if (selection === undefined || this.values.next?.reasoningEffort !== undefined || selection.reasoningEffort === effort) return
+    const model = this.catalog?.groups.find(group => group.id === selection.provider)?.models.find(model => model.id === selection.model)
+    if (model?.efforts.some(candidate => candidate.id === effort) !== true) return
+    this.signal.throwIfAborted()
+    await this.ctx.selectModel(sessionId, { provider: selection.provider, model: selection.model, reasoningEffort: effort })
+    await this.refreshProjections()
+  }
+
   private async refreshProjections(): Promise<void> {
     const sessionId = this.selected
     if (sessionId === undefined || this.cancelled()) return

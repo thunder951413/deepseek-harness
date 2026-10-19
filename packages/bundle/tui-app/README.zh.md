@@ -26,7 +26,7 @@ kind: "package-bundle"
 
 官方 `dsh` 升级后，profile 和其中的插件仍保存在 `DSH_HOME` 下，直接启动同一个终端 profile 即可。使用相同数据目录的新命令无需修改源码或重建运行时；需要重新接入时，用保存的安装器指定 `--dsh <命令>`。`release.json` 记录已验证的 Harness 版本。`dsh --version` 与之不同时安装器会警告，加 `--require-match` 则拒绝安装。兼容性取决于 Web 协议、启动器和 Cordis 接口，并不保证所有未来版本都适用。启动时会认证并要求会话列表可用。终端对其他返回值采用宽容读取：只取显示用的字段，忽略新增字段，可选数据缺失时显示 `未提供`。Harness 缺少模型目录、用量读数、账户余额或用户提问时，只失去对应功能。会话列表、创建、跟随或发送接口变化或缺失时会报告失败，需要与该 Harness 对应的终端发布包。每周运行的 `tui-compat` 工作流会把当前构建安装到临时 `DSH_HOME`，并对已发布的 `@deepseek-ai/dsh` 做探测。安装不迁移用户数据。Session 格式迁移仍由后台负责，旧后台不保证能读取新版迁移后的数据。
 
-在项目目录中运行 `dsh tui`。启动后直接打开新对话；使用 `/resume` 或 Ctrl-R 搜索已有 Session；`dsh tui --session <id>` 可直接打开指定对话。通过 Web 界面配置模型凭据；`/web` 显示其登录链接，标题不显示该链接，因为它相当于密码。`--backend-profile <name>` 选择自启后台的 profile（默认 `web`）；`--connect <launch-url>` 连接已有服务；`--port <port>` 指定自启后台的监听端口；省略时由操作系统分配。新对话归入启动目录对应的工作区；如果相同规范路径已有工作区，则复用，否则创建。输入和输出都必须是交互式终端。
+在项目目录中运行 `dsh tui`。启动后直接打开新对话；使用 `/resume` 或 Ctrl-R 搜索启动目录下的 Session（`/resume <id>` 可打开其他目录的 Session）；`dsh tui --session <id>` 可直接打开指定对话。通过 Web 界面配置模型凭据；`/web` 显示其登录链接，标题不显示该链接，因为它相当于密码。`--backend-profile <name>` 选择自启后台的 profile（默认 `web`）；`--connect <launch-url>` 连接已有服务；`--port <port>` 指定自启后台的监听端口；省略时由操作系统分配。新对话归入启动目录对应的工作区；如果相同规范路径已有工作区，则复用，否则创建。输入和输出都必须是交互式终端。
 
 | 按键 | 操作 |
 |---|---|
@@ -53,7 +53,7 @@ kind: "package-bundle"
 
 终端应答其所选 Session 的审批和提问请求。其他 Session 的请求继续交给 Web 应答器。审批默认拒绝；只有 **Allow once** 会授权操作。关闭应用会取消待处理输入。操作失败显示在编辑区旁，发送失败时保留编辑框内容。
 
-配置补丁可设置 `tui` 行的 `historyMessages`（默认 200）和 `transcriptCharacters`（默认 200000）。文件补全使用 `completionDepth`（默认 8）和 `completionFiles`（默认 10000）限制遍历深度和保留的索引。这些设置限制显示的历史范围，不会删除持久化日志。
+配置补丁可设置 `tui` 行的 `historyMessages`（默认 200）和 `transcriptCharacters`（默认 200000）。文件补全使用 `completionDepth`（默认 8）和 `completionFiles`（默认 10000）限制遍历深度和保留的索引。这些设置限制显示的历史范围，不会删除持久化日志。`defaultReasoningEffort`（默认 `high`）会应用到每个新对话，前提是其模型提供该档位；已有自己记录选择的对话不会被改动，设为空值则保持模型默认。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现

@@ -4259,7 +4259,7 @@ export type ToolPresentationMode = 'native' | 'ptc'
 ## `@deepseek-ai/dsh-tui-app`
 
 - `inject`: `tuiStartup`
-- `source`: [`packages/bundle/tui-app/src/index.ts:18`](../packages/bundle/tui-app/src/index.ts)
+- `source`: [`packages/bundle/tui-app/src/index.ts:22`](../packages/bundle/tui-app/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-specific terminal history bounds. */
@@ -4284,6 +4284,8 @@ export interface Config {
   completionDepth: number
   /** Maximum project file paths retained for completion. */
   completionFiles: number
+  /** Reasoning effort applied to a new conversation when its model offers it; empty keeps the model's own default. */
+  defaultReasoningEffort: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tui-app -->

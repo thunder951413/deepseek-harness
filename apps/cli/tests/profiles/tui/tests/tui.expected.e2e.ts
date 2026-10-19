@@ -128,6 +128,7 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
   try {
     await expect.poll(() => screen(), { timeout: 20000 }).toContain('Web: http:')
     await expect.poll(() => screen(), { timeout: 20000 }).not.toContain('choose a conversation')
+    await expect.poll(() => screen(), { timeout: 20000 }).toContain('Reasoning: high')
     expect(terminal.buffer.active).toBe(terminal.buffer.normal)
     expect(prefix).not.toContain('\x1b[?1049h')
     expect(screen()).not.toContain('token=')
@@ -307,6 +308,13 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     child.write('shortcut\r')
     await expect.poll(screen, { timeout: 20000 }).toContain('Reply to shortcut')
     expect(screen()).not.toContain('Reply to nshortcut')
+    await mkdir(join(home, 'elsewhere'))
+    const foreign = await fetch(new URL('/api/session/create', url), {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'client-request', rpcId: 'terminal-foreign', method: 'session/create',
+        payload: { args: { request: { cwd: join(home, 'elsewhere') } } } }),
+    })
+    const foreignId = ((await foreign.json()) as { result: { value: { sessionId: string } } }).result.value.sessionId
     for (let index = 0; index < 22; index++) {
       const response = await fetch(new URL('/api/session/create', url), {
         method: 'POST', headers: { cookie, 'content-type': 'application/json' },
@@ -322,6 +330,10 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     terminal.resize(100, 30)
     child.resize(100, 30)
     await expect.poll(screen, { timeout: 20000 }).toContain('Find:')
+    child.write(foreignId.slice(-12))
+    await expect.poll(screen, { timeout: 20000 }).toContain('No matches')
+    child.write('\x7f'.repeat(12))
+    await expect.poll(screen, { timeout: 20000 }).not.toContain('No matches')
     child.write(sessionId.slice(-12))
     await expect.poll(screen, { timeout: 20000 }).toContain(`Find: ${sessionId.slice(-12)}`)
     expect(screen()).not.toContain('No matches')
