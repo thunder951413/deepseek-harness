@@ -45,10 +45,25 @@ node -e '
     console.error(`setup-tui: Node.js 22.19+ or 24+ is required (found ${process.versions.node})`)
     process.exit(1)
   }'
-if ! command -v pnpm >/dev/null; then
-  command -v corepack >/dev/null || { echo "setup-tui: pnpm is required (enable it with: corepack enable)" >&2; exit 1; }
-  corepack enable pnpm
+command -v npm >/dev/null || { echo "setup-tui: npm is required" >&2; exit 1; }
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# Use exactly the pnpm version this checkout pins. A pnpm that is missing, of another version, or
+# installed without its platform binary (for example through corepack or npm --omit=optional, which
+# fails with "no @pnpm/exe.<platform> native binary was found") is replaced by a private copy that
+# npm installs with its optional platform package; `dsh plugin add` finds it through PATH as well.
+pnpm_version="$(node -p "require('${root}/package.json').packageManager.replace(/^pnpm@/, '')")"
+if [ "$(cd "$work" && pnpm --version 2>/dev/null || true)" != "$pnpm_version" ]; then
+  echo "setup-tui: installing pnpm ${pnpm_version} into a temporary directory"
+  npm install --prefix "${work}/pnpm" --no-audit --no-fund --include=optional --loglevel=error "pnpm@${pnpm_version}"
+  export PATH="${work}/pnpm/node_modules/.bin:${PATH}"
+  if [ "$(cd "$work" && pnpm --version 2>/dev/null || true)" != "$pnpm_version" ]; then
+    echo "setup-tui: pnpm ${pnpm_version} does not run on this system; install it from https://pnpm.io/installation" >&2
+    exit 1
+  fi
 fi
+export npm_config_manage_package_manager_versions=false
 
 command_path="${bin_dir}/${name}"
 if [ -e "$command_path" ] && ! grep -q "$marker" "$command_path" 2>/dev/null && [ "$force" -eq 0 ]; then
@@ -63,8 +78,8 @@ if [ "$skip_build" -eq 0 ]; then pnpm run build:artifacts; fi
 [ -f apps/cli/lib/bin.js ] || { echo "setup-tui: apps/cli/lib/bin.js is missing; run without --skip-build" >&2; exit 1; }
 
 mkdir -p "$bin_dir"
-staging="$(mktemp -d)"
-trap 'rm -rf "$staging"' EXIT
+staging="${work}/staging"
+mkdir -p "$staging"
 cat > "${staging}/${name}" <<WRAPPER
 #!/bin/sh
 ${marker}
