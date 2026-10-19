@@ -27,6 +27,18 @@ export function inputBackground(hex: string, level = colorLevel(process.env)): (
   return hex === '' || level === 0 ? undefined : new Chalk({ level }).bgHex(hex)
 }
 
+/**
+ * Build a background painter for message and tool blocks.
+ * These tints are only a few steps from the terminal background, so a 16-color terminal would show
+ * them as plain black or grey blocks; they need 256 colors or more.
+ * @param hex - `#rrggbb` color; empty disables the background.
+ * @param level - terminal color depth; defaults to the current environment's.
+ * @returns the painter, or undefined when disabled or the terminal has fewer than 256 colors.
+ */
+export function blockBackground(hex: string, level = colorLevel(process.env)): ((text: string) => string) | undefined {
+  return level < 2 ? undefined : inputBackground(hex, level)
+}
+
 /** Keyboard menu styles shared by the composer and foreground questions. */
 export const selectTheme: SelectListTheme = {
   selectedPrefix: color.cyan, selectedText: color.bold, description: color.dim,

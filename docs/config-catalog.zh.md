@@ -4288,6 +4288,12 @@ export interface Config {
   defaultReasoningEffort: string
   /** `#rrggbb` color behind the input block; empty disables it. Use a light color on light terminals. */
   inputBackground: string
+  /** `#rrggbb` tint behind your messages; empty disables it. Needs a 256-color terminal. */
+  userBackground: string
+  /** `#rrggbb` tint behind the assistant's answers; empty disables it. Needs a 256-color terminal. */
+  assistantBackground: string
+  /** `#rrggbb` tint behind tool activity and task lists; empty disables it. Needs a 256-color terminal. */
+  toolBackground: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tui-app -->

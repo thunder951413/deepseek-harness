@@ -44,6 +44,12 @@ export interface Config {
   defaultReasoningEffort: string
   /** `#rrggbb` color behind the input block; empty disables it. Use a light color on light terminals. */
   inputBackground: string
+  /** `#rrggbb` tint behind your messages; empty disables it. Needs a 256-color terminal. */
+  userBackground: string
+  /** `#rrggbb` tint behind the assistant's answers; empty disables it. Needs a 256-color terminal. */
+  assistantBackground: string
+  /** `#rrggbb` tint behind tool activity and task lists; empty disables it. Needs a 256-color terminal. */
+  toolBackground: string
 }
 
 /** Terminal history limits, configurable through profile patches. */
@@ -60,6 +66,9 @@ export const Config: z<Config> = z.object({
   completionFiles: z.natural().min(1).default(10000),
   defaultReasoningEffort: z.string().default('high'),
   inputBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#2b2f38'),
+  userBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#212a38'),
+  assistantBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#1c2028'),
+  toolBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#1f2621'),
 })
 
 /**
@@ -279,7 +288,9 @@ export function apply(ctx: Context, config: Config): void {
           send: (text) => { serialize(() => send(text)) },
           sessions: () => { serialize(pick) }, create: () => { serialize(create) }, cancel,
           tools: () => { serialize(inspectTools) }, exit: () => { exit(0) },
-        }, config.completionDepth, config.completionFiles, config.inputBackground)
+        }, config.completionDepth, config.completionFiles, {
+          input: config.inputBackground, user: config.userBackground, assistant: config.assistantBackground, tools: config.toolBackground,
+        })
         const startupSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.startupTimeoutMs)])
         const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, config.startupTimeoutMs,
           config.shutdownTimeoutMs, lifetime.signal, text => ui?.status(text))).url

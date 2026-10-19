@@ -9,7 +9,7 @@ import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { terminalCommands, ProjectCompletion } from './completion.ts'
 import { renderActivity } from './activity.ts'
 import { renderStatus, type StatusItem } from './status-bar.ts'
-import { color, editorTheme, inputBackground, markdownTheme, selectTheme } from './theme.ts'
+import { blockBackground, color, editorTheme, inputBackground, markdownTheme, selectTheme } from './theme.ts'
 import { terminalText, type TerminalActivity, type TerminalEntry, type TerminalView } from './transcript.ts'
 
 /** Keep the user's pre-existing shell scrollback during a width-change redraw. */
@@ -54,36 +54,61 @@ class ActivityPanel implements Component {
   invalidate(): void {}
 }
 
+/** Colors behind each kind of block, as `#rrggbb`; empty leaves the terminal background. */
+export interface Backgrounds {
+  /** The input block. */
+  readonly input: string
+  /** Your messages. */
+  readonly user: string
+  /** The assistant's answers. */
+  readonly assistant: string
+  /** Tool activity and task lists. */
+  readonly tools: string
+}
+
+type Painter = ((text: string) => string) | undefined
+
+/** Painters for the blocks of the conversation. */
+interface Painters {
+  readonly user: Painter
+  readonly assistant: Painter
+  readonly tools: Painter
+}
+
 class MessageBlock extends Container {
-  constructor(entry: TerminalEntry) {
+  constructor(entry: TerminalEntry, painters: Painters) {
     super()
+    const painter = entry.kind === 'user' ? painters.user : entry.kind === 'assistant' ? painters.assistant
+      : entry.kind === 'tools' || entry.kind === 'todo' ? painters.tools : undefined
+    const body = new Box(painter === undefined ? 0 : 1, 0, painter)
     switch (entry.kind) {
       case 'user':
-        this.addChild(new Text(color.bold.cyan('You'), 0, 0))
-        this.addChild(new Text(entry.text, 0, 0))
+        body.addChild(new Text(color.bold.cyan('You'), 0, 0))
+        body.addChild(new Text(entry.text, 0, 0))
         break
       case 'assistant':
-        this.addChild(new Text(color.bold('Assistant'), 0, 0))
-        this.addChild(new Markdown(entry.text, 0, 0, markdownTheme))
+        body.addChild(new Text(color.bold('Assistant'), 0, 0))
+        body.addChild(new Markdown(entry.text, 0, 0, markdownTheme))
         break
       case 'tools':
-        this.addChild(new Text(`${(entry.group?.failed ?? 0) > 0 ? color.red('●') : color.green('●')} ${color.dim(`${entry.text} · /tools`)}`, 0, 0))
-        return
+        body.addChild(new Text(`${(entry.group?.failed ?? 0) > 0 ? color.red('●') : color.green('●')} ${color.dim(`${entry.text} · /tools`)}`, 0, 0))
+        break
       case 'todo':
-        this.addChild(new Text(color.bold('Todos'), 0, 0))
+        body.addChild(new Text(color.bold('Todos'), 0, 0))
         for (const item of entry.todos ?? []) {
           const line = `  ${TODO_MARK[item.status]} ${item.content}`
-          this.addChild(new Text(item.status === 'completed' ? color.dim.strikethrough(line)
+          body.addChild(new Text(item.status === 'completed' ? color.dim.strikethrough(line)
             : item.status === 'in_progress' ? color.bold(line) : line, 0, 0))
         }
         break
       case 'status':
-        this.addChild(new Text(color.dim(`── ${entry.text} ──`), 0, 0))
-        if (entry.details !== undefined) this.addChild(new Text(color.red(entry.details), 0, 0))
+        body.addChild(new Text(color.dim(`── ${entry.text} ──`), 0, 0))
+        if (entry.details !== undefined) body.addChild(new Text(color.red(entry.details), 0, 0))
         break
       default: assertNever(entry.kind)
     }
-    this.addChild(new Spacer(1))
+    this.addChild(body)
+    if (entry.kind !== 'tools') this.addChild(new Spacer(1))
   }
 }
 
@@ -157,7 +182,9 @@ export class TerminalUi {
   private readonly notice = new Text('', 0, 0)
   private readonly editor: PromptEditor
   private readonly editorBox: Box
-  private readonly paint: ((text: string) => string) | undefined
+  private readonly paint: Painter
+  private readonly painters: Painters
+  private readonly panelBox: Box
   private readonly completion: ProjectCompletion
   private readonly blocks = new Map<string, { entry: TerminalEntry; component: Component }>()
   private readonly previousConsole = globalThis.console
@@ -178,10 +205,14 @@ export class TerminalUi {
    * @param actions - application-owned conversation actions.
    * @param completionDepth - maximum file-discovery depth.
    * @param completionFiles - maximum retained file suggestions.
-   * @param background - `#rrggbb` color behind the input block; empty for none.
+   * @param backgrounds - colors behind the input block and the conversation blocks.
    */
-  constructor(actions: TerminalActions, completionDepth: number, completionFiles: number, background: string) {
-    this.paint = inputBackground(background)
+  constructor(actions: TerminalActions, completionDepth: number, completionFiles: number, backgrounds: Backgrounds) {
+    this.paint = inputBackground(backgrounds.input)
+    this.painters = { user: blockBackground(backgrounds.user), assistant: blockBackground(backgrounds.assistant),
+      tools: blockBackground(backgrounds.tools) }
+    this.panelBox = new Box(this.painters.tools === undefined ? 0 : 1, 0, this.painters.tools)
+    this.panelBox.addChild(this.panel)
     this.completion = new ProjectCompletion(process.cwd(), completionDepth, completionFiles, (message) => { this.status(message) })
     this.editor = new PromptEditor(this.tui, editorTheme, { paddingX: 0 })
     this.editor.setAutocompleteProvider(this.completion)
@@ -303,7 +334,7 @@ export class TerminalUi {
       retained.add(entry.id)
       let block = this.blocks.get(entry.id)
       if (block?.entry !== entry) {
-        block = { entry, component: new MessageBlock(entry) }
+        block = { entry, component: new MessageBlock(entry, this.painters) }
         this.blocks.set(entry.id, block)
       }
       if (!view.working || entry.kind !== 'tools') children.push(block.component)
@@ -315,7 +346,7 @@ export class TerminalUi {
       this.liveMarkdown.setText(view.live)
       this.live.addChild(this.liveMarkdown)
     }
-    if (view.working) this.live.addChild(this.panel)
+    if (view.working) this.live.addChild(this.panelBox)
     this.tui.requestRender()
   }
 
