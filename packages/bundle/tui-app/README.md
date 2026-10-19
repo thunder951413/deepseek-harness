@@ -52,7 +52,7 @@ Default startup launches the invoking `dsh` executable with `--profile web --no-
 
 The terminal answers approval and question requests for its selected Session. Requests for other Sessions continue to the Web answerers. Approval defaults to rejection; only **Allow once** authorizes an operation. Closing the application cancels pending input. Failed operations appear beside the composer, and a failed submission keeps its editor text.
 
-Profile patches may configure the `tui` row's `historyMessages` (default 200) and `transcriptCharacters` (default 200000). File completion uses `completionDepth` (default 8) and `completionFiles` (default 10000) to bound traversal and the retained index. These bound the displayed history, without deleting the persisted log. `defaultReasoningEffort` (default `high`) is applied to each new conversation whose model offers that level; a conversation with its own recorded choice is never changed, and an empty value keeps the model's default.
+Profile patches may configure the `tui` row's `historyMessages` (default 200) and `transcriptCharacters` (default 200000). File completion uses `completionDepth` (default 8) and `completionFiles` (default 10000) to bound traversal and the retained index. These bound the displayed history, without deleting the persisted log. `defaultReasoningEffort` (default `high`) is applied to each new conversation whose model offers that level; a conversation with its own recorded choice is never changed, and an empty value keeps the model's default. `inputBackground` (default `#2b2f38`) paints the input block; set another `#rrggbb` color for a light terminal, or an empty value to turn it off. `NO_COLOR` also turns it off.
 
 ## Understand the implementation
 

@@ -42,6 +42,8 @@ export interface Config {
   completionFiles: number
   /** Reasoning effort applied to a new conversation when its model offers it; empty keeps the model's own default. */
   defaultReasoningEffort: string
+  /** `#rrggbb` color behind the input block; empty disables it. Use a light color on light terminals. */
+  inputBackground: string
 }
 
 /** Terminal history limits, configurable through profile patches. */
@@ -57,6 +59,7 @@ export const Config: z<Config> = z.object({
   completionDepth: z.natural().min(1).default(8),
   completionFiles: z.natural().min(1).default(10000),
   defaultReasoningEffort: z.string().default('high'),
+  inputBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#2b2f38'),
 })
 
 /**
@@ -276,7 +279,7 @@ export function apply(ctx: Context, config: Config): void {
           send: (text) => { serialize(() => send(text)) },
           sessions: () => { serialize(pick) }, create: () => { serialize(create) }, cancel,
           tools: () => { serialize(inspectTools) }, exit: () => { exit(0) },
-        }, config.completionDepth, config.completionFiles)
+        }, config.completionDepth, config.completionFiles, config.inputBackground)
         const startupSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.startupTimeoutMs)])
         const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, config.startupTimeoutMs,
           config.shutdownTimeoutMs, lifetime.signal, text => ui?.status(text))).url

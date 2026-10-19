@@ -2,12 +2,12 @@
 import { Console } from 'node:console'
 import { Writable } from 'node:stream'
 import {
-  Container, Editor, Input, Markdown, ProcessTerminal, SelectList, Spacer, Text, TuiMainScreen,
+  Box, Container, Editor, Input, Markdown, ProcessTerminal, SelectList, Spacer, Text, TuiMainScreen,
   matchesKey, truncateToWidth, fuzzyFilter, type Component, type Focusable, type SelectItem,
 } from '@earendil-works/pi-tui'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { terminalCommands, ProjectCompletion } from './completion.ts'
-import { color, editorTheme, markdownTheme, selectTheme } from './theme.ts'
+import { color, editorTheme, inputBackground, markdownTheme, selectTheme } from './theme.ts'
 import { terminalText, type TerminalEntry, type TerminalView } from './transcript.ts'
 
 /** Keep the user's pre-existing shell scrollback during a width-change redraw. */
@@ -136,6 +136,8 @@ export class TerminalUi {
   private readonly reading = new Text('', 0, 0)
   private readonly notice = new Text('', 0, 0)
   private readonly editor: PromptEditor
+  private readonly editorBox: Box
+  private readonly paint: ((text: string) => string) | undefined
   private readonly completion: ProjectCompletion
   private readonly blocks = new Map<string, { entry: TerminalEntry; component: Component }>()
   private readonly previousConsole = globalThis.console
@@ -157,8 +159,10 @@ export class TerminalUi {
    * @param actions - application-owned conversation actions.
    * @param completionDepth - maximum file-discovery depth.
    * @param completionFiles - maximum retained file suggestions.
+   * @param background - `#rrggbb` color behind the input block; empty for none.
    */
-  constructor(actions: TerminalActions, completionDepth: number, completionFiles: number) {
+  constructor(actions: TerminalActions, completionDepth: number, completionFiles: number, background: string) {
+    this.paint = inputBackground(background)
     this.completion = new ProjectCompletion(process.cwd(), completionDepth, completionFiles, (message) => { this.status(message) })
     this.editor = new PromptEditor(this.tui, editorTheme, { paddingX: 0 })
     this.editor.setAutocompleteProvider(this.completion)
@@ -172,7 +176,8 @@ export class TerminalUi {
       this.status(terminalText(chunk.toString()).trim())
       done()
     } })
-    this.interaction.addChild(this.editor)
+    this.editorBox = this.inputBox(this.editor)
+    this.interaction.addChild(this.editorBox)
     for (const child of [this.header, new Spacer(1), this.messages, this.live, this.interaction, this.notice, this.reading,
       new Text(color.dim('/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit'), 0, 0)]) this.tui.addChild(child)
     this.tui.addInputListener((data) => {
@@ -382,15 +387,21 @@ export class TerminalUi {
       signal.addEventListener('abort', abort, { once: true })
       this.interaction.clear()
       this.interaction.addChild(new Text(color.bold(terminalText(title)), 0, 1))
-      this.interaction.addChild(input)
+      this.interaction.addChild(this.inputBox(input))
       this.tui.setFocus(input)
       this.tui.requestRender()
     })
   }
 
+  private inputBox(input: Component): Box {
+    const box = new Box(0, 0, this.paint)
+    box.addChild(input)
+    return box
+  }
+
   private restoreEditor(): void {
     this.interaction.clear()
-    this.interaction.addChild(this.editor)
+    this.interaction.addChild(this.editorBox)
     this.tui.setFocus(this.editor)
     if (!this.closed) this.tui.requestRender()
   }

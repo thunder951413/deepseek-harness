@@ -4286,6 +4286,8 @@ export interface Config {
   completionFiles: number
   /** Reasoning effort applied to a new conversation when its model offers it; empty keeps the model's own default. */
   defaultReasoningEffort: string
+  /** `#rrggbb` color behind the input block; empty disables it. Use a light color on light terminals. */
+  inputBackground: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tui-app -->
