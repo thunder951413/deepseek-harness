@@ -104,6 +104,8 @@ Each `measure()` call synchronizes the fold to the current durable tail, then re
 
 `./estimate` exports the stateless text/content estimators used by tool-result retention. Model adapters supply request-image costs through `imageRequestPricing`.
 
+The browser-safe `@deepseek-ai/dsh-token-meter/client` export includes `formatCacheHitPercent` and `formatTokensPerSecond` for consistent Web and terminal readings. Cache formatting never rounds a partial hit to 100%; throughput uses whole tokens at ten or more tokens per second and one decimal below ten.
+
 </details>
 
 -----

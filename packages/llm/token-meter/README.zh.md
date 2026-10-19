@@ -104,6 +104,8 @@ const price = ctx.tokenMeter.estimateMessage(message)
 
 `./estimate` 导出无服务状态的文字与内容估算函数，供工具结果保留复用。图片的实际请求成本由模型适配器的 `imageRequestPricing` 提供。
 
+可安全用于浏览器的 `@deepseek-ai/dsh-token-meter/client` 导出包含 `formatCacheHitPercent` 和 `formatTokensPerSecond`，供 Web 与终端一致地显示读数。缓存格式化不会把部分命中舍入为 100%；每秒十个及以上 Token 的速度取整数，低于十时保留一位小数。
+
 </details>
 
 -----

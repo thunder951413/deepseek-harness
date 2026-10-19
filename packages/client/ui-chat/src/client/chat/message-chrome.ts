@@ -63,15 +63,7 @@ export function formatRunDuration(ms: number, t: RunDurationTranslate): RunDurat
   return parts
 }
 
-/**
- * Decode-throughput figure: whole tokens from ten up, one decimal below.
- * @param tps - Tokens per second.
- * @returns Display number without unit.
- */
-export function formatTokensPerSecond(tps: number): string {
-  const clamped = Math.max(0, tps)
-  return clamped >= 10 ? String(Math.round(clamped)) : String(Math.round(clamped * 10) / 10)
-}
+export { formatTokensPerSecond } from '@deepseek-ai/dsh-token-meter/client'
 
 /**
  * Compact local timestamp for message IconActions. Same calendar day →
