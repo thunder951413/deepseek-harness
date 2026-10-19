@@ -7,9 +7,10 @@ import {
 } from '@earendil-works/pi-tui'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { terminalCommands, ProjectCompletion } from './completion.ts'
+import { renderActivity } from './activity.ts'
 import { renderStatus, type StatusItem } from './status-bar.ts'
 import { color, editorTheme, inputBackground, markdownTheme, selectTheme } from './theme.ts'
-import { terminalText, type TerminalEntry, type TerminalView } from './transcript.ts'
+import { terminalText, type TerminalActivity, type TerminalEntry, type TerminalView } from './transcript.ts'
 
 /** Keep the user's pre-existing shell scrollback during a width-change redraw. */
 class ScrollbackTerminal extends ProcessTerminal {
@@ -41,6 +42,18 @@ class StatusBar implements Component {
   invalidate(): void {}
 }
 
+/** Fixed-height panel for the working turn; it renders nothing while idle. */
+class ActivityPanel implements Component {
+  working = false
+  started = 0
+  activity: TerminalActivity = { calls: 0, failed: 0 }
+
+  render(width: number): string[] {
+    return this.working ? renderActivity(this.activity, Math.floor((Date.now() - this.started) / 1000), width) : []
+  }
+  invalidate(): void {}
+}
+
 class MessageBlock extends Container {
   constructor(entry: TerminalEntry) {
     super()
@@ -53,12 +66,9 @@ class MessageBlock extends Container {
         this.addChild(new Text(color.bold('Assistant'), 0, 0))
         this.addChild(new Markdown(entry.text, 0, 0, markdownTheme))
         break
-      case 'tool': {
-        const mark = entry.state === 'failed' ? color.red('●') : entry.state === 'running' ? color.yellow('●') : color.green('●')
-        this.addChild(new Text(`${mark} ${color.bold(entry.text)}`, 0, 0))
-        for (const line of entry.preview ?? []) this.addChild(new Text(`  ${color.dim('⎿')} ${color.red(line)}`, 0, 0))
-        break
-      }
+      case 'tools':
+        this.addChild(new Text(`${(entry.group?.failed ?? 0) > 0 ? color.red('●') : color.green('●')} ${color.dim(`${entry.text} · /tools`)}`, 0, 0))
+        return
       case 'todo':
         this.addChild(new Text(color.bold('Todos'), 0, 0))
         for (const item of entry.todos ?? []) {
@@ -142,7 +152,7 @@ export class TerminalUi {
   private readonly messages = new Container()
   private readonly live = new Container()
   private readonly liveMarkdown = new Markdown('', 0, 1, markdownTheme)
-  private readonly workLabel = new Text('', 0, 0)
+  private readonly panel = new ActivityPanel()
   private readonly interaction = new Container()
   private readonly notice = new Text('', 0, 0)
   private readonly editor: PromptEditor
@@ -159,7 +169,6 @@ export class TerminalUi {
   private closed = false
   private closing: Promise<void> | undefined
   private working = false
-  private workStarted = 0
   private workTimer: ReturnType<typeof setInterval> | undefined
   private showTimer: ReturnType<typeof setTimeout> | undefined
   private queuedView: TerminalView | undefined
@@ -279,18 +288,15 @@ export class TerminalUi {
     }, 40)
   }
 
-  private elapsed(): void {
-    const seconds = Math.floor((Date.now() - this.workStarted) / 1000)
-    this.workLabel.setText(color.dim(`✻ Working… ${String(seconds)}s · Ctrl-C to stop`))
-  }
-
   private render(view: TerminalView): void {
     if (view.working && !this.working) {
-      this.workStarted = Date.now()
-      this.workTimer = setInterval(() => { this.elapsed(); this.tui.requestRender() }, 1000)
+      this.panel.started = Date.now()
+      this.workTimer = setInterval(() => { this.tui.requestRender() }, 1000)
     }
     if (!view.working && this.workTimer !== undefined) { clearInterval(this.workTimer); this.workTimer = undefined }
     this.working = view.working
+    this.panel.working = view.working
+    this.panel.activity = view.activity
     const children: Component[] = []
     const retained = new Set<string>()
     for (const entry of view.entries) {
@@ -300,19 +306,16 @@ export class TerminalUi {
         block = { entry, component: new MessageBlock(entry) }
         this.blocks.set(entry.id, block)
       }
-      children.push(block.component)
+      if (!view.working || entry.kind !== 'tools') children.push(block.component)
     }
     for (const seq of this.blocks.keys()) if (!retained.has(seq)) this.blocks.delete(seq)
     this.messages.children = children
     this.live.clear()
-    if (view.live !== '' || view.working) {
-      this.elapsed()
-      this.live.addChild(this.workLabel)
-      if (view.live !== '') {
-        this.liveMarkdown.setText(view.live)
-        this.live.addChild(this.liveMarkdown)
-      }
+    if (view.live !== '') {
+      this.liveMarkdown.setText(view.live)
+      this.live.addChild(this.liveMarkdown)
     }
+    if (view.working) this.live.addChild(this.panel)
     this.tui.requestRender()
   }
 

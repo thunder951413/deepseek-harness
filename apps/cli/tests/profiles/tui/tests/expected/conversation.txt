@@ -1,19 +1,19 @@
+
+● 1 tool call · /tools
+Assistant
 Reply to free-question
 
 You
 reject
 
-● Bash(printf tui-proof > tui-proof.txt)
-  ⎿ Error: the user rejected escalating this command to "danger-full-access"; it stays denied, so stop …
-
+● 1 tool call · 1 failed · /tools
 Assistant
 Reply to reject
 
 You
 approve
 
-● Bash(printf tui-proof > tui-proof.txt)
-
+● 1 tool call · /tools
 Assistant
 Reply to approve
 

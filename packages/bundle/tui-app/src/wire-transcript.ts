@@ -1,7 +1,7 @@
 /** Terminal text projection of the shared Web Session journal. */
-import { terminalText, type TerminalEntry, type TerminalView } from './transcript.ts'
+import { terminalText, type TerminalEntry, type TerminalView, type ToolCall, type ToolGroup } from './transcript.ts'
 import type { Json, JournalEvent, StreamFrame } from './port.ts'
-import { failureLine, toolTitle } from './tool-view.ts'
+import { toolDetail, toolTitle } from './tool-view.ts'
 
 function record(value: Json | undefined): { readonly [key: string]: Json } {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as { readonly [key: string]: Json } : {}
@@ -29,8 +29,18 @@ const STATUSES = ['pending', 'in_progress', 'completed'] as const
 
 type Draft = Omit<TerminalEntry, 'seq' | 'id'>
 
+/** Most recent calls a group keeps; the group's counts still include older ones. */
+const GROUP_CALLS = 100
+
 function size(entry: TerminalEntry): number {
   return entry.text.length + (entry.details?.length ?? 0)
+    + (entry.group?.calls ?? []).reduce((total, call) => total + call.title.length + call.details.length, 0)
+}
+
+function groupDraft(group: ToolGroup): Draft {
+  const { count, failed } = group
+  return { kind: 'tools', text: `${String(count)} tool call${count === 1 ? '' : 's'}${failed > 0 ? ` · ${String(failed)} failed` : ''}`,
+    group: { ...group, calls: group.calls.slice(-GROUP_CALLS) } }
 }
 
 /**
@@ -52,8 +62,11 @@ export class TerminalTranscript {
   private live = ''
   private working = false
   private characters = 0
-  private readonly byCall = new Map<string, TerminalEntry>()
   private readonly hiddenCalls = new Set<string>()
+  private group: TerminalEntry | undefined
+  private turnCalls = 0
+  private turnFailed = 0
+  private latest: ToolCall | undefined
   private todoEntry: TerminalEntry | undefined
 
   /** @param maxCharacters - maximum retained text and tool-detail characters. */
@@ -62,14 +75,25 @@ export class TerminalTranscript {
   /** Reset the display projection when changing conversations. */
   reset(): void {
     this.entries = []; this.live = ''; this.working = false; this.characters = 0
-    this.byCall.clear(); this.hiddenCalls.clear(); this.todoEntry = undefined
+    this.hiddenCalls.clear(); this.todoEntry = undefined
+    this.group = undefined; this.turnCalls = 0; this.turnFailed = 0; this.latest = undefined
   }
 
   private fit(draft: Draft): Draft {
     const body = terminalText(draft.text).slice(0, this.maxCharacters)
     const details = draft.details === undefined ? undefined
       : terminalText(draft.details).slice(0, Math.max(0, this.maxCharacters - body.length))
-    return { ...draft, text: body, ...details === undefined ? {} : { details } }
+    return { ...draft, text: body, ...details === undefined ? {} : { details },
+      ...draft.group === undefined ? {} : { group: { ...draft.group, calls: this.fitCalls(draft.group.calls, body.length) } } }
+  }
+
+  /** Clip call details to the budget and drop the oldest calls until the group fits; the latest call always stays. */
+  private fitCalls(calls: readonly ToolCall[], used: number): ToolCall[] {
+    const fitted = calls.map(call => ({ ...call,
+      details: terminalText(call.details).slice(0, Math.max(0, this.maxCharacters - used - call.title.length)) }))
+    const total = (): number => fitted.reduce((sum, call) => sum + call.title.length + call.details.length, used)
+    while (fitted.length > 1 && total() > this.maxCharacters) fitted.shift()
+    return fitted
   }
 
   private append(event: JournalEvent, draft: Draft): TerminalEntry {
@@ -77,6 +101,7 @@ export class TerminalTranscript {
     this.entries.push(entry)
     this.characters += size(entry)
     if (entry.kind === 'todo') this.todoEntry = entry
+    this.group = entry.kind === 'tools' ? entry : undefined
     this.trim()
     return entry
   }
@@ -89,6 +114,14 @@ export class TerminalTranscript {
     this.characters += size(next) - size(previous)
     this.trim()
     return next
+  }
+
+  private ownerOf(callId: string): { entry: TerminalEntry; group: ToolGroup } | undefined {
+    for (const entry of this.entries.toReversed()) {
+      const group = entry.group
+      if (group !== undefined && group.calls.some(call => call.id === callId)) return { entry, group }
+    }
+    return undefined
   }
 
   private trim(): void {
@@ -105,7 +138,10 @@ export class TerminalTranscript {
     const data = record(event.data)
     let shown: Draft | undefined
     switch (event.type) {
-      case 'turn/start': this.working = true; this.todoEntry = undefined; break
+      case 'turn/start':
+        this.working = true; this.todoEntry = undefined; this.group = undefined
+        this.turnCalls = 0; this.turnFailed = 0; this.latest = undefined
+        break
       case 'user/message':
         if (record(data.source).kind === 'user' || record(data.source).kind === 'user-question-reply') {
           shown = { kind: 'user', text: content(data.content) }
@@ -133,21 +169,32 @@ export class TerminalTranscript {
         const name = text(data.name)
         const callId = text(data.callId)
         if (name === 'todo_write') { this.hiddenCalls.add(callId); break }
-        const draft: Draft = { kind: 'tool', text: toolTitle(name, text(data.arguments)), state: 'running', details: text(data.arguments) }
-        this.byCall.set(callId, this.append(event, draft))
+        const args = text(data.arguments)
+        const call: ToolCall = { id: callId, title: toolTitle(name, args), state: 'running', detail: toolDetail(name, args), details: args }
+        this.turnCalls += 1
+        this.latest = call
+        const open = this.group
+        const before = open?.group ?? { calls: [], count: 0, failed: 0 }
+        const draft = groupDraft({ calls: [...before.calls, call], count: before.count + 1, failed: before.failed })
+        const next = open === undefined ? undefined : this.replace(open, draft)
+        if (next === undefined) this.append(event, draft)
+        else this.group = next
         break
       }
       case 'tool/result': {
         const message = record(data.message)
         const callId = text(message.toolCallId)
         if (this.hiddenCalls.delete(callId)) break
-        const result = content(message.content)
+        const owner = this.ownerOf(callId)
+        if (owner === undefined) break
         const failed = message.isError === true
-        const previous = this.byCall.get(callId)
-        this.byCall.delete(callId)
-        const draft: Draft = { kind: 'tool', text: previous?.text ?? callId, state: failed ? 'failed' : 'done',
-          ...failed ? { preview: failureLine(result) } : {}, details: `${previous?.details ?? ''}\n\n${result}`.trim() }
-        if (previous === undefined || this.replace(previous, draft) === undefined) this.append(event, draft)
+        const result = content(message.content)
+        const calls = owner.group.calls.map((call): ToolCall => call.id !== callId ? call
+          : { ...call, state: failed ? 'failed' : 'done', details: `${call.details}\n\n${result}`.trim() })
+        if (this.latest?.id === callId) this.latest = calls.find(call => call.id === callId)
+        if (failed) this.turnFailed += 1
+        const next = this.replace(owner.entry, groupDraft({ ...owner.group, calls, failed: owner.group.failed + (failed ? 1 : 0) }))
+        if (this.group === owner.entry && next !== undefined) this.group = next
         break
       }
       case 'assistant/attempt':
@@ -194,5 +241,8 @@ export class TerminalTranscript {
 
   /** Read the current display projection.
    * @returns settled blocks and sanitized unfinished text. */
-  view(): TerminalView { return { entries: this.entries, live: terminalText(this.live), working: this.working } }
+  view(): TerminalView {
+    return { entries: this.entries, live: terminalText(this.live), working: this.working,
+      activity: { calls: this.turnCalls, failed: this.turnFailed, ...this.latest === undefined ? {} : { latest: this.latest } } }
+  }
 }

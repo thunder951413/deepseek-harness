@@ -48,12 +48,35 @@ export function toolTitle(name: string, args: string): string {
   return hint === undefined ? name : `${name}(${clip(firstLine(hint))})`
 }
 
+/** Logical lines of invocation detail kept per call; the panel wraps and limits them to its rows. */
+const DETAIL_LINES = 3
+/** Characters kept from one detail line. */
+const DETAIL_WIDTH = 240
+
+function detailLine(value: string): string {
+  const line = terminalText(value).replaceAll('\t', '  ')
+  return line.length > DETAIL_WIDTH ? `${line.slice(0, DETAIL_WIDTH - 1)}…` : line
+}
+
+function argumentText(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
 /**
- * Keep the first line of a failed tool result.
- * @param content - result text.
- * @returns zero or one clipped line.
+ * Describe what a tool call is doing, in at most a few lines.
+ * @param name - tool name.
+ * @param args - serialized arguments, possibly malformed.
+ * @returns the command, path and change, or leading arguments; empty when there are none.
  */
-export function failureLine(content: string): string[] {
-  const line = firstLine(terminalText(content))
-  return line === '' ? [] : [clip(line)]
+export function toolDetail(name: string, args: string): string[] {
+  const parsed = parse(args)
+  const command = string(parsed.command)
+  if (name === 'bash' && command !== undefined) return command.split('\n').filter(line => line.trim() !== '').slice(0, DETAIL_LINES).map(detailLine)
+  const path = string(parsed.path)
+  if (name === 'str_replace_editor' && path !== undefined) {
+    const change = (sign: '-' | '+', text: unknown): string[] => string(text) === undefined ? [] : [detailLine(`${sign} ${firstLine(argumentText(text))}`)]
+    return [detailLine(path), ...command === 'str_replace' ? [...change('-', parsed.old_str), ...change('+', parsed.new_str)]
+      : command === 'insert' ? change('+', parsed.new_str) : []].slice(0, DETAIL_LINES)
+  }
+  return Object.entries(parsed).slice(0, DETAIL_LINES).map(([key, value]) => detailLine(`${key}: ${firstLine(argumentText(value))}`))
 }

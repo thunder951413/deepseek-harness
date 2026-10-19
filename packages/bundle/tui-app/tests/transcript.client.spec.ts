@@ -19,8 +19,9 @@ describe('terminal transcript', () => {
     transcript.accept(event('turn/end', { reason: { kind: 'completed' } }, 4))
     expect(transcript.view().entries).toEqual([
       { id: '0', seq: 0, kind: 'user', text: 'Read the project' },
-      { id: '1', seq: 1, kind: 'tool', text: 'read_file(README.md)', state: 'failed', preview: ['File not found'],
-        details: '{"path":"README.md"}\n\nFile not found' },
+      { id: '1', seq: 1, kind: 'tools', text: '1 tool call · 1 failed', group: { count: 1, failed: 1, calls: [
+        { id: 'read-1', title: 'read_file(README.md)', state: 'failed', detail: ['path: README.md'], details: '{"path":"README.md"}\n\nFile not found' },
+      ] } },
       { id: '3', seq: 3, kind: 'assistant', text: 'Choose another file.' },
     ])
     transcript.accept(event('turn/end', { reason: { kind: 'aborted' } }, 5))
@@ -34,13 +35,14 @@ describe('terminal transcript', () => {
     transcript.accept(event('assistant/message', { message: { content: [{ type: 'text', text: 'finished' }] } }))
     expect(transcript.view()).toMatchObject({ live: '', entries: [{ kind: 'assistant', text: 'finished' }] })
     transcript.reset()
-    expect(transcript.view()).toEqual({ entries: [], live: '', working: false })
+    expect(transcript.view()).toEqual({ entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } })
   })
 
   it('bounds retained text and strips OSC hyperlinks and cursor commands', () => {
     const transcript = new TerminalTranscript(40)
     for (let seq = 0; seq < 100; seq++) transcript.accept(event('tool/call', { name: 'tool', arguments: 'x'.repeat(80) }, seq))
-    const retained = transcript.view().entries.reduce((size, entry) => size + entry.text.length + (entry.details?.length ?? 0), 0)
+    const retained = transcript.view().entries.reduce((size, entry) => size + entry.text.length + (entry.details?.length ?? 0)
+      + (entry.group?.calls ?? []).reduce((total, call) => total + call.title.length + call.details.length, 0), 0)
     expect(retained).toBeLessThanOrEqual(40)
     expect(terminalText('\x1b]8;;https://invalid.test\x07safe\x1b]8;;\x07\x1b[2J\x00')).toBe('safe')
   })
@@ -70,28 +72,58 @@ describe('terminal transcript', () => {
     expect(transcript.view().entries.map(entry => entry.id)).toEqual(['3', '7'])
   })
 
-  it('shows one line per tool call, adding the first line of a failure only', () => {
-    const transcript = new TerminalTranscript(2000)
-    const args = JSON.stringify({ command: 'str_replace', path: '/p/a.ts', old_str: 'a', new_str: 'b' })
-    transcript.accept(event('tool/call', { name: 'str_replace_editor', callId: 'e1', arguments: args }, 1))
-    expect(transcript.view().entries[0]).toMatchObject({ text: 'Edit(/p/a.ts)', state: 'running' })
-    expect(transcript.view().entries[0]).not.toHaveProperty('preview')
-    transcript.accept(event('tool/result', { message: { toolCallId: 'e1', content: [{ type: 'text', text: 'done' }] } }, 2))
-    expect(transcript.view().entries[0]).toMatchObject({ state: 'done' })
-    expect(transcript.view().entries[0]).not.toHaveProperty('preview')
-    transcript.accept(event('tool/call', { name: 'str_replace_editor', callId: 'e2', arguments: args }, 3))
-    transcript.accept(event('tool/result', { message: { toolCallId: 'e2', isError: true, content: 'no match\nmore' } }, 4))
-    expect(transcript.view().entries[1]).toMatchObject({ state: 'failed', preview: ['no match'] })
+  it('groups consecutive tool calls into one entry that updates in place', () => {
+    const transcript = new TerminalTranscript(5000)
+    transcript.accept(event('turn/start', {}, 1))
+    transcript.accept(event('tool/call', { name: 'bash', callId: 'a', arguments: '{"command":"ls"}' }, 2))
+    transcript.accept(event('tool/call', { name: 'bash', callId: 'b', arguments: '{"command":"pwd"}' }, 3))
+    expect(transcript.view().entries).toHaveLength(1)
+    expect(transcript.view().entries[0]).toMatchObject({ id: '2', text: '2 tool calls', group: { count: 2, failed: 0 } })
+    transcript.accept(event('tool/result', { message: { toolCallId: 'a', content: 'one' } }, 4))
+    transcript.accept(event('tool/result', { message: { toolCallId: 'b', isError: true, content: 'two' } }, 5))
+    expect(transcript.view().entries[0]).toMatchObject({ text: '2 tool calls · 1 failed',
+      group: { failed: 1, calls: [{ id: 'a', state: 'done' }, { id: 'b', state: 'failed' }] } })
+    expect(transcript.view().activity).toMatchObject({ calls: 2, failed: 1, latest: { id: 'b', state: 'failed', title: 'Bash(pwd)' } })
+    transcript.accept(event('assistant/message', { message: { content: 'narration' } }, 6))
+    transcript.accept(event('tool/call', { name: 'bash', callId: 'c', arguments: '{"command":"date"}' }, 7))
+    expect(transcript.view().entries.map(entry => entry.text)).toEqual(['2 tool calls · 1 failed', 'narration', '1 tool call'])
+    expect(transcript.view().activity).toMatchObject({ calls: 3, failed: 1, latest: { id: 'c', state: 'running' } })
+    transcript.accept(event('turn/start', {}, 8))
+    expect(transcript.view().activity).toEqual({ calls: 0, failed: 0 })
   })
 
-  it('records a result whose call is no longer retained or was never seen as its own block', () => {
-    const transcript = new TerminalTranscript(30)
-    transcript.accept(event('tool/call', { name: 'bash', callId: 'b1', arguments: '{"command":"ls"}' }, 1))
-    for (let seq = 2; seq < 6; seq++) transcript.accept(event('user/message', { source: { kind: 'user' }, content: 'x'.repeat(12) }, seq))
-    transcript.accept(event('tool/result', { message: { toolCallId: 'b1', content: 'listing' } }, 9))
-    expect(transcript.view().entries.at(-1)).toMatchObject({ id: '9', kind: 'tool', state: 'done', text: 'Bash(ls)' })
-    transcript.accept(event('tool/result', { message: { toolCallId: 'unknown', content: 'orphan' } }, 10))
-    expect(transcript.view().entries.at(-1)).toMatchObject({ text: 'unknown', state: 'done' })
+  it('keeps the latest call current only while its own result arrives, and ignores results of unknown calls', () => {
+    const transcript = new TerminalTranscript(5000)
+    transcript.accept(event('tool/call', { name: 'bash', callId: 'a', arguments: '{"command":"ls"}' }, 1))
+    transcript.accept(event('tool/call', { name: 'bash', callId: 'b', arguments: '{"command":"pwd"}' }, 2))
+    transcript.accept(event('tool/result', { message: { toolCallId: 'a', content: 'x' } }, 3))
+    expect(transcript.view().activity.latest).toMatchObject({ id: 'b', state: 'running' })
+    transcript.accept(event('tool/result', { message: { toolCallId: 'unknown', content: 'orphan' } }, 4))
+    expect(transcript.view().entries).toHaveLength(1)
+  })
+
+  it('caps the calls a group lists while counting every call, and drops results for trimmed groups', () => {
+    const transcript = new TerminalTranscript(1_000_000)
+    for (let index = 0; index < 120; index++) {
+      transcript.accept(event('tool/call', { name: 'bash', callId: `c${String(index)}`, arguments: '{"command":"ls"}' }, index))
+    }
+    const group = transcript.view().entries[0]
+    expect(group?.group?.count).toBe(120)
+    expect(group?.group?.calls).toHaveLength(100)
+    const small = new TerminalTranscript(30)
+    small.accept(event('tool/call', { name: 'bash', callId: 'x', arguments: '{"command":"ls"}' }, 1))
+    small.accept(event('user/message', { source: { kind: 'user' }, content: 'y'.repeat(40) }, 2))
+    small.accept(event('tool/result', { message: { toolCallId: 'x', content: 'late' } }, 3))
+    expect(small.view().entries.map(entry => entry.kind)).toEqual(['user'])
+  })
+
+  it('starts a new task list when the previous one was trimmed away', () => {
+    const transcript = new TerminalTranscript(40)
+    transcript.accept(event('todo/write', { todos: [{ content: 'one', status: 'pending' }] }, 1))
+    transcript.accept(event('user/message', { source: { kind: 'user' }, content: 'x'.repeat(60) }, 2))
+    expect(transcript.view().entries.map(entry => entry.kind)).toEqual(['user'])
+    transcript.accept(event('todo/write', { todos: [{ content: 'two', status: 'pending' }] }, 3))
+    expect(transcript.view().entries.map(entry => `${entry.kind}:${entry.id}`)).toEqual(['todo:3'])
   })
 
   it('reports interrupted attempts and turn errors with their details', () => {
@@ -119,7 +151,7 @@ describe('terminal transcript', () => {
     transcript.stream({ type: 'end' })
     transcript.accept(event('user/message', { source: { kind: 'tool' }, content: 'hidden' }, 1))
     transcript.accept(event('future/event', {}, 2))
-    expect(transcript.view()).toEqual({ entries: [], live: '', working: true })
+    expect(transcript.view()).toEqual({ entries: [], live: '', working: true, activity: { calls: 0, failed: 0 } })
   })
 
   it('finds the arguments of the call awaiting approval', () => {
@@ -136,6 +168,6 @@ describe('terminal transcript', () => {
     transcript.accept(event('assistant/message', 'broken', 2))
     transcript.accept(event('tool/call', 'broken', 3))
     transcript.accept(event('turn/end', [], 4))
-    expect(transcript.view().entries.map(entry => entry.text)).toEqual(['blue', '', 'Turn finished'])
+    expect(transcript.view().entries.map(entry => entry.text)).toEqual(['blue', '1 tool call', 'Turn finished'])
   })
 })

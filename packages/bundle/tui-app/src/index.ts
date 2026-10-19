@@ -77,7 +77,7 @@ export function apply(ctx: Context, config: Config): void {
   if (ready === undefined || exit === undefined) throw new Error('tui requires the dsh profile launcher')
   const lifetime = new AbortController()
   const tasks = new Set<Promise<void>>()
-  let transcript: TerminalView = { entries: [], live: '', working: false }
+  let transcript: TerminalView = { entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } }
   let connection: HarnessPort | undefined
   const backend = (): HarnessPort => {
     if (connection === undefined) throw new Error('Harness is still connecting; wait for the conversation to open')
@@ -115,7 +115,7 @@ export function apply(ctx: Context, config: Config): void {
     await following
     if (lifetime.signal.aborted) return
     selected = id
-    transcript = { entries: [], live: '', working: false }
+    transcript = { entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } }
     ui?.status('Loading conversation…')
     await controls?.select(id)
     lifetime.signal.throwIfAborted()
@@ -157,11 +157,11 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
   const inspectTools = async (): Promise<void> => {
-    const entries = transcript.entries.filter(entry => entry.kind === 'tool').toReversed()
-    const index = await ui?.choose('Tool activity · choose an item to expand',
-      entries.length === 0 ? ['No tool activity · Close'] : entries.map(entry => entry.text), lifetime.signal)
-    const entry = index === undefined ? undefined : entries[index]
-    if (entry !== undefined) await ui?.choose(`${entry.text}\n\n${entry.details ?? 'No text output'}`, ['Close'], lifetime.signal)
+    const calls = transcript.entries.flatMap(entry => entry.group?.calls ?? []).toReversed()
+    const index = await ui?.choose('Tool activity · choose an item to expand', calls.length === 0 ? ['No tool activity · Close']
+      : calls.map(call => `${call.state === 'failed' ? '✗' : call.state === 'running' ? '…' : '✓'} ${call.title}`), lifetime.signal)
+    const call = index === undefined ? undefined : calls[index]
+    if (call !== undefined) await ui?.choose(`${call.title}\n\n${call.details === '' ? 'No text output' : call.details}`, ['Close'], lifetime.signal)
   }
   const send = async (text: string): Promise<void> => {
     if (text.trim() === '') return

@@ -11,21 +11,50 @@ export function terminalText(value: string): string {
 }
 
 
+/** One tool call inside a group. */
+export interface ToolCall {
+  /** Tool call identity from the journal. */
+  readonly id: string
+  /** Single-line label such as `Bash(ls -la)`. */
+  readonly title: string
+  readonly state: 'running' | 'done' | 'failed'
+  /** Up to a few lines describing the invocation: a command, a path, or leading arguments. */
+  readonly detail: readonly string[]
+  /** Full arguments and output, shown on demand. */
+  readonly details: string
+}
+
+/** Consecutive tool calls shown as one block. */
+export interface ToolGroup {
+  /** Most recent calls, oldest first. */
+  readonly calls: readonly ToolCall[]
+  /** Calls made in the group, including those no longer listed. */
+  readonly count: number
+  readonly failed: number
+}
+
 /** One immutable block in the terminal's recent conversation window. */
 export interface TerminalEntry {
   /** Stable display identity: the journal sequence number of the event that produced the block. */
   readonly id: string
   readonly seq: number
-  readonly kind: 'user' | 'assistant' | 'tool' | 'todo' | 'status'
+  readonly kind: 'user' | 'assistant' | 'tools' | 'todo' | 'status'
   readonly text: string
   /** Full arguments and output, shown on demand. */
   readonly details?: string
-  /** Progress of a tool call. */
-  readonly state?: 'running' | 'done' | 'failed'
-  /** Lines shown under a tool title: the first line of a failure. */
-  readonly preview?: readonly string[]
+  /** Calls of a `tools` block. */
+  readonly group?: ToolGroup
   /** Current task list for a `todo` entry. */
   readonly todos?: readonly { readonly content: string; readonly status: 'pending' | 'in_progress' | 'completed' }[]
+}
+
+/** What the model is doing now, for the fixed activity panel. */
+export interface TerminalActivity {
+  /** Tool calls made since the turn started. */
+  readonly calls: number
+  readonly failed: number
+  /** Latest call of the turn, absent before the first call. */
+  readonly latest?: ToolCall
 }
 
 /** Recent settled blocks and the unfinished assistant text. */
@@ -33,4 +62,5 @@ export interface TerminalView {
   readonly entries: readonly TerminalEntry[]
   readonly live: string
   readonly working: boolean
+  readonly activity: TerminalActivity
 }
