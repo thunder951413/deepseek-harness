@@ -4259,7 +4259,7 @@ export type ToolPresentationMode = 'native' | 'ptc'
 ## `@deepseek-ai/dsh-tui-app`
 
 - `inject`: `tuiStartup`
-- `source`: [`packages/bundle/tui-app/src/index.ts:27`](../packages/bundle/tui-app/src/index.ts)
+- `source`: [`packages/bundle/tui-app/src/index.ts:35`](../packages/bundle/tui-app/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-specific terminal history bounds. */

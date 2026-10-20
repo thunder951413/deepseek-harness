@@ -12,11 +12,19 @@ import { SessionId, type HarnessPort, type PortAnswer, type PortQuestionRequest,
 import { WebRemotePort } from './web-remote.ts'
 import { createRequire } from 'node:module'
 import { observe } from './conversation.ts'
-import { sessionsIn } from './history.ts'
+import { canonical, sessionsIn } from './history.ts'
 import { relativeAge } from './welcome.ts'
+import { readUpdateRecord, startUpdate, updateDue } from './auto-update.ts'
 import { chooseTints } from './appearance.ts'
 import { queryBackground } from './background-query.ts'
 import { startServer, type TerminalServer } from './server.ts'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Harness-home path resolver provided by the dsh launcher. */
+    dshHomePath?: (...segments: string[]) => string
+  }
+}
 
 /** Stable terminal plugin identity. */
 export const name = 'tui'
@@ -121,6 +129,8 @@ export function apply(ctx: Context, config: Config): void {
   let connected = true
   let historyMessages = config.historyMessages
   let selection = 0
+  let viewed = false
+  const prompted = new Set<SessionId>()
   let skills: readonly SkillSummary[] = []
   let interaction = Promise.resolve()
 
@@ -147,6 +157,7 @@ export function apply(ctx: Context, config: Config): void {
     const current = ++selection
     if (id !== selected) historyMessages = config.historyMessages
     selected = id
+    viewed = false
     transcript = { entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } }
     ui?.status(t('Loading conversation…'))
     await controls?.select(id)
@@ -179,12 +190,30 @@ export function apply(ctx: Context, config: Config): void {
           run(async () => { await controls?.refreshBalance() })
         }
         transcript = frame.view
+        viewed = true
         ui?.show(frame.view)
       }
     })().catch((error: unknown) => { if (!signal.aborted) report(error) })
   }
+  // A new conversation reuses this directory's newest empty one, as the Web client does, so starting the terminal
+  // or pressing /new repeatedly leaves at most one empty conversation per directory.
   const create = async (): Promise<void> => {
-    const id = await backend().createSession(process.cwd())
+    if (selected !== undefined && viewed && transcript.entries.length === 0 && !transcript.working && !prompted.has(selected)) {
+      ui?.status(t('This conversation is still empty; type a message to start it'))
+      return
+    }
+    // The Host reuses a Session only when its recorded directory equals the Workspace path exactly.
+    const workspacePath = await canonical(process.cwd())
+    const empty = (await backend().listSessions(lifetime.signal))
+      .find(item => item.blank && !item.running && item.id !== selected && item.cwd === workspacePath)
+    let id: SessionId
+    try {
+      id = await backend().createSession(process.cwd(), empty?.id)
+    } catch (error) {
+      // Reuse only saves an empty conversation; when the Host refuses the named one, a new conversation still starts.
+      if (empty === undefined) throw error
+      id = await backend().createSession(process.cwd())
+    }
     lifetime.signal.throwIfAborted()
     await select(id)
     await controls?.useDefaultEffort(id, config.defaultReasoningEffort)
@@ -203,7 +232,8 @@ export function apply(ctx: Context, config: Config): void {
     let all = false
     for (;;) {
       const available = await backend().listSessions(lifetime.signal)
-      const sessions = all ? available : await sessionsIn(process.cwd(), available)
+      const visible = available.filter(item => !item.blank || item.id === selected)
+      const sessions = all ? visible : await sessionsIn(process.cwd(), visible)
       const index = await ui?.choose(`${t('Conversations')} · ${t(all ? 'All projects' : 'Current project')}`, [
         t('+ New conversation'), ...sessions.map((item) => {
           const label = `${item.running ? '▶ ' : ''}${item.title ?? t('Untitled')}`
@@ -244,7 +274,7 @@ export function apply(ctx: Context, config: Config): void {
       const id = selected
       if (command === '/steer') {
         const instruction = argument ?? await ui.ask(t('Steer now'), lifetime.signal)
-        if (instruction !== undefined) { await backend().prompt(id, instruction, lifetime.signal, 'steer'); ui.accepted(); ui.status(t('Instruction accepted for the next model step')) }
+        if (instruction !== undefined) { prompted.add(id); await backend().prompt(id, instruction, lifetime.signal, 'steer'); ui.accepted(); ui.status(t('Instruction accepted for the next model step')) }
         else ui.failed('')
         return
       }
@@ -290,6 +320,7 @@ export function apply(ctx: Context, config: Config): void {
     }
     if (await enqueue(async () => await controls?.command(text) ?? false)) { title(); return }
     const queued = transcript.working
+    prompted.add(selected)
     await backend().prompt(selected, text, lifetime.signal)
     ui?.accepted()
     title()
@@ -435,8 +466,22 @@ export function apply(ctx: Context, config: Config): void {
         })
         title()
         run(async () => {
+          // Enabled only by running scripts/sync-upstream-tui.sh from a source checkout; the script needs bash.
+          const home = ctx.get('dshHomePath')
+          if (home === undefined || process.platform === 'win32') return
+          const record = await readUpdateRecord(home('addons', 'dsh-tui', 'auto-update.json'))
+          if (record === undefined) return
+          if (updateDue(record, Date.now())) {
+            startUpdate(record)
+            ui?.banner({ notice: t('An update from {remote}/{branch} starts after every dsh exits; the new version applies at next start',
+              { remote: record.remote, branch: record.branch }) })
+          } else if (record.status === 'failed') {
+            ui?.banner({ notice: t('Last automatic update failed: {message} · {log}', { message: record.message, log: record.log }) })
+          }
+        })
+        run(async () => {
           const here = await sessionsIn(process.cwd(), await backend().listSessions(lifetime.signal))
-          const [latest] = here.filter(item => item.title !== undefined).toSorted((a, b) => b.updatedAt - a.updatedAt)
+          const [latest] = here.filter(item => !item.blank && item.title !== undefined).toSorted((a, b) => b.updatedAt - a.updatedAt)
           if (latest?.title !== undefined) ui?.banner({ last: { title: latest.title, updatedAt: latest.updatedAt } })
         })
         serialize(async () => {

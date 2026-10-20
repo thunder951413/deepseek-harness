@@ -23,7 +23,7 @@ export class TerminalControls {
    * @param locale - terminal interface language.
    */
   constructor(private readonly ctx: Pick<HarnessPort,
-    'queue' | 'readings' | 'watchReadings' | 'modelCatalog' | 'selectModel' | 'balance' | 'watchAccount'>, private readonly ui: Pick<TerminalUi, 'queueCount' | 'metrics' | 'choose' | 'view' | 'accepted'>, private readonly signal: AbortSignal, private readonly version: string, private readonly locale = new TerminalLocale()) {
+    'queue' | 'readings' | 'watchReadings' | 'modelCatalog' | 'selectModel' | 'balance' | 'watchAccount'>, private readonly ui: Pick<TerminalUi, 'queueCount' | 'metrics' | 'conversationTitle' | 'choose' | 'view' | 'accepted'>, private readonly signal: AbortSignal, private readonly version: string, private readonly locale = new TerminalLocale()) {
     this.render()
   }
 
@@ -41,6 +41,7 @@ export class TerminalControls {
     if (this.signal.aborted) return
     const reading = sessionReadings(this.values, this.current(), this.balance, this.locale)
     this.ui.metrics(this.projectionError === undefined ? reading.compact : `${reading.compact}\n${this.projectionError}`, reading.model)
+    this.ui.conversationTitle(this.values.title)
   }
 
   /**
@@ -116,7 +117,7 @@ export class TerminalControls {
       for await (const change of this.ctx.watchReadings(this.signal)) {
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key === 'inbox')) void this.refreshQueue()
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key !== undefined
-          && ['modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
+          && ['title', 'modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
       }
     } catch (error) {
       if (!this.signal.aborted) {

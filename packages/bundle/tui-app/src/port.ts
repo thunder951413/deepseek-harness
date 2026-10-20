@@ -24,6 +24,8 @@ export interface SessionSummary {
   readonly running: boolean
   readonly title?: string
   readonly cwd?: string
+  /** No human message has been sent yet; such conversations are hidden from history lists. */
+  readonly blank: boolean
 }
 
 /** Opaque pending-message identity received from the Host. */
@@ -103,6 +105,8 @@ export interface ModelCatalogView {
 
 /** Whole-conversation readings; an absent field means the Harness did not report it. */
 export interface Readings {
+  /** Current title: the Host's fallback from the first message, a generated title, or a user rename. */
+  readonly title?: string
   readonly next?: ModelChoice
   readonly usage?: {
     readonly uncachedInput: number
@@ -252,11 +256,13 @@ export interface HarnessPort {
    */
   listSessions(signal: AbortSignal): Promise<SessionSummary[]>
   /**
-   * Create a conversation in a directory.
+   * Create a conversation in a directory, or reuse an empty one there.
    * @param directory - absolute working directory.
-   * @returns the new conversation identity.
+   * @param reuse - empty conversation of the same directory to reuse; the Harness creates a new one instead when
+   * that conversation has started a turn, was archived, or is held by another process.
+   * @returns the reused or new conversation identity.
    */
-  createSession(directory: string): Promise<SessionId>
+  createSession(directory: string, reuse?: SessionId): Promise<SessionId>
   /**
    * Follow a conversation from a bounded opening window.
    * @param sessionId - conversation to follow.

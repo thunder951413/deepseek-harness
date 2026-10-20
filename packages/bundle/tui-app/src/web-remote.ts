@@ -192,12 +192,13 @@ export class WebRemotePort implements HarnessPort {
     return readSessionList(this.required('session/list', await this.remote().session.list({}, signal)))
   }
 
-  async createSession(directory: string): Promise<SessionId> {
+  async createSession(directory: string, reuse?: SessionId): Promise<SessionId> {
     const workspace = this.required('workspace/create', await this.remote().workspace.create({ path: directory }))
     const workspaceId = readWorkspaceId(workspace)
     if (workspaceId === undefined) throw new Error('workspace/create: the Harness returned no Workspace identity')
     const created = readCreated(this.required('session/create',
-      await this.remote().session.create({ workspaceId: workspaceId as WorkspaceId })))
+      await this.remote().session.create({ workspaceId: workspaceId as WorkspaceId,
+        ...reuse === undefined ? {} : { sessionId: wire(reuse) } })))
     if (created === undefined) throw new Error('session/create: the Harness returned no conversation identity')
     return created
   }

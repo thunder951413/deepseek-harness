@@ -132,3 +132,10 @@ it('renders through the component with the current locale and terminal height', 
   expect(plain(banner.render(0)).length).toBeGreaterThan(0)
   banner.invalidate()
 })
+
+it('shows a maintenance notice under the identity', () => {
+  const rows = plain(renderWelcome({ ...info, notice: 'Updating in the background' }, 140, 40, 0, new TerminalLocale(), now))
+  const title = rows.findIndex(row => row.includes('DeepSeek v1.2.3'))
+  const notice = rows.findIndex(row => row.includes('Updating in the background'))
+  expect(notice).toBeGreaterThan(title)
+})

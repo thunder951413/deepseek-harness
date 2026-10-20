@@ -28,6 +28,8 @@ export interface WelcomeInfo {
   readonly commands: readonly ListEntry[]
   /** Skills a message can invoke; omitted while unknown or when the Harness has none. */
   readonly skills?: readonly ListEntry[]
+  /** One line about background maintenance, such as an automatic update; omitted when there is none. */
+  readonly notice?: string
 }
 
 /** One named command or skill and what it does. */
@@ -154,7 +156,7 @@ function list(heading: string, entries: readonly ListEntry[], total: number, mor
  * @param now - current milliseconds since the epoch, for the relative time.
  * @returns rows each at most `width` columns wide. Featured commands and the first skills sit at the right when they fit;
  * the whale, then the name and version, model, directory, and how to continue the last conversation are centered in the
- * columns left of them, or across the whole width without them.
+ * columns left of them, or across the whole width without them, followed by any maintenance notice.
  */
 export function renderWelcome(info: WelcomeInfo, width: number, rows: number, frame: number,
   locale: TerminalLocale, now = Date.now()): string[] {
@@ -182,7 +184,7 @@ export function renderWelcome(info: WelcomeInfo, width: number, rows: number, fr
     center(`${color.bold('DeepSeek')}${color.dim(` v${terminalText(info.version)}`)}`, area),
     ...info.model === undefined ? [] : [center(color.dim(terminalText(info.model)), area)],
     ...info.directory === undefined ? [] : [center(color.dim(fit({ text: terminalText(info.directory), keep: 'end' }, area)), area)],
-    ...last, '']
+    ...last, ...info.notice === undefined ? [] : [center(color.yellow(terminalText(info.notice)), area)], '']
 }
 
 /** Component that draws the banner above the conversation. */

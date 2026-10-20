@@ -142,6 +142,10 @@ export type Choice = string | {
   readonly search?: string
 }
 
+/** Columns of the conversation title in the status area, about the width of the product name it replaces,
+ * so a long title does not push the status into its compact layout. */
+const TITLE_COLUMNS = 24
+
 /** Widest name column of a menu with descriptions; longer names are truncated. */
 const NAME_COLUMN_MAX = 36
 
@@ -250,6 +254,7 @@ export class TerminalUi {
   private lastInterrupt = 0
   private readonly drafts = new Map<string, string>()
   private lastView: TerminalView | undefined
+  private title: string | undefined
 
   /**
    * @param actions - application-owned conversation actions.
@@ -356,7 +361,7 @@ export class TerminalUi {
     this.animating = true
     this.banner({ directory })
     this.bar.right = [
-      { text: terminalText(`DeepSeek Harness · ${id}`), keep: 'start' },
+      { text: this.identity(id), keep: 'start' },
       { text: terminalText(directory), keep: 'end' },
       { text: terminalText(`Web: ${new URL('/', url).origin} · /web for the sign-in link`), keep: 'start' },
     ]
@@ -430,6 +435,20 @@ export class TerminalUi {
     }
     if (view.working) this.live.addChild(this.panelBox)
     this.tui.requestRender()
+  }
+
+  /** Show the selected conversation's current title in the status area.
+   * @param title - title from the Host; undefined while the conversation has none. */
+  conversationTitle(title: string | undefined): void {
+    if (this.closed || title === this.title) return
+    this.title = title
+    const [first, ...rest] = this.bar.right
+    if (first !== undefined && this.selected !== undefined) this.bar.right = [{ ...first, text: this.identity(this.selected) }, ...rest]
+    this.tui.requestRender()
+  }
+
+  private identity(id: string): string {
+    return terminalText(`${truncateToWidth(this.title ?? 'DeepSeek Harness', TITLE_COLUMNS, '…')} · ${id}`)
   }
 
   /** Change the facts shown in the start-of-conversation banner.

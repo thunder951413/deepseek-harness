@@ -13,12 +13,12 @@ it('keeps plain JSON and replaces members that cannot be serialized', () => {
 it('reads conversations newest first and ignores delegated rows, extra fields, and rows without identity', () => {
   const rows = readSessionList({ items: [
     { sessionId: 'a', updatedAt: 1, running: true, cwd: '/p', projections: { values: { title: 'First' } }, future: { x: 1 } },
-    { sessionId: 'b', updatedAt: 5 },
+    { sessionId: 'b', updatedAt: 5, blank: true },
     { sessionId: 'c', origin: 'subagent', updatedAt: 9 },
     { updatedAt: 3 }, { sessionId: 'd' },
   ] })
-  expect(rows).toEqual([{ id: 'b', updatedAt: 5, running: false }, { id: 'a', updatedAt: 1, running: true, cwd: '/p', title: 'First' },
-    { id: 'd', updatedAt: 0, running: false }])
+  expect(rows).toEqual([{ id: 'b', updatedAt: 5, running: false, blank: true },
+    { id: 'a', updatedAt: 1, running: true, blank: false, cwd: '/p', title: 'First' }, { id: 'd', updatedAt: 0, running: false, blank: false }])
   expect(() => readSessionList({ items: 'not-a-list' })).toThrow('incompatible')
 })
 
@@ -118,4 +118,10 @@ it('reads skill names with descriptions and ignores entries without a name', () 
   expect(readSkills({ skills: [{ name: 'a', description: 'Does a', modelInvocable: true }, { name: 'b' }, { description: 'nameless' }], more: 1 }))
     .toEqual([{ name: 'a', description: 'Does a' }, { name: 'b', description: '' }])
   expect(() => readSkills({ skills: 'none' })).toThrow('Invalid skill catalog')
+})
+
+it('reads the current title and ignores an empty or missing one', () => {
+  expect(readReadings({ kind: 'sequenced', values: { title: 'Fix the queue' } })).toEqual({ kind: 'values', readings: { title: 'Fix the queue' } })
+  expect(readReadings({ kind: 'sequenced', values: { title: '' } })).toEqual({ kind: 'values', readings: {} })
+  expect(readReadings({ kind: 'sequenced', values: { title: null } })).toEqual({ kind: 'values', readings: {} })
 })

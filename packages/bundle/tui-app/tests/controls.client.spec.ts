@@ -23,7 +23,8 @@ function harness() {
     balance: vi.fn(async (): Promise<Balance> => null),
     async *watchAccount() { yield },
   }
-  const ui = { queueCount: vi.fn(), view: vi.fn(async (_title: string, _body: string) => {}), metrics: vi.fn(), accepted: vi.fn(),
+  const ui = { queueCount: vi.fn(), conversationTitle: vi.fn(), view: vi.fn(async (_title: string, _body: string) => {}),
+    metrics: vi.fn(), accepted: vi.fn(),
     choose: vi.fn(async (_title: string, _choices: readonly string[], _signal: AbortSignal): Promise<number | undefined> => 0) }
   const controls = new TerminalControls(services, ui, abort.signal, '1.2.3')
   return { controls, services, ui, abort, changes }
@@ -131,7 +132,7 @@ it('refreshes readings for relevant live changes only and reports a disconnected
   const { controls, services, changes, ui } = harness()
   await controls.select(SessionId('one'))
   vi.mocked(services.readings).mockClear()
-  changes.push({}, { sessionId: SessionId('other'), key: 'tokenUsage' }, { sessionId: SessionId('one'), key: 'title' },
+  changes.push({}, { sessionId: SessionId('other'), key: 'tokenUsage' }, { sessionId: SessionId('one'), key: 'workingDirectory' },
     { sessionId: SessionId('one'), key: 'tokenUsage' })
   await controls.watchSessions()
   expect(services.readings).toHaveBeenCalledTimes(2)
@@ -274,4 +275,15 @@ it('skips queue reads without a selection and ignores a failure that finishes af
   stale.reject(new Error('offline'))
   await first
   expect(ui.queueCount).not.toHaveBeenCalled()
+})
+
+it('shows the title and refreshes it when the Host announces a new one', async () => {
+  const { controls, services, ui, changes } = harness()
+  vi.mocked(services.readings).mockResolvedValueOnce({ kind: 'values', readings: {} })
+    .mockResolvedValueOnce({ kind: 'values', readings: { title: 'Fix the queue' } })
+  await controls.select(SessionId('s'))
+  expect(ui.conversationTitle).toHaveBeenLastCalledWith(undefined)
+  changes.push({ sessionId: SessionId('s'), key: 'title' })
+  await controls.watchSessions()
+  expect(ui.conversationTitle).toHaveBeenLastCalledWith('Fix the queue')
 })

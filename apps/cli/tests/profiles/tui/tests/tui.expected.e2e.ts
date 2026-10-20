@@ -125,7 +125,8 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     if (value === undefined) throw new Error('Terminal did not show its sign-in link')
     return value
   }
-  const latestSession = (): string | undefined => [...allText().matchAll(/DeepSeek Harness · (session-[a-z0-9-]+)/gu)].at(-1)?.[1]
+  // The status area ends its first row with `<title> · <session>`; a Host-assigned title replaces the product name.
+  const latestSession = (): string | undefined => [...allText().matchAll(/ · (session-[a-z0-9-]+) *$/gmu)].at(-1)?.[1]
   try {
     await expect.poll(() => screen(), { timeout: 20000 }).toContain('Web: http:')
     await expect.poll(() => screen(), { timeout: 20000 }).not.toContain('choose a conversation')
@@ -399,11 +400,14 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     const secondId = latestSession()
     if (secondId === undefined) throw new Error('Missing second Session identity')
     await workspace([sessionId, secondId])
+    // A new conversation keeps an empty one, and later reuses it instead of creating another.
     child.write('\x1b[110;5u')
-    await expect.poll(latestSession, { timeout: 20000 }).not.toBe(secondId)
-    const thirdId = latestSession()
-    if (thirdId === undefined) throw new Error('Missing third Session identity')
-    await workspace([sessionId, secondId, thirdId])
+    await expect.poll(screen, { timeout: 20000 }).toContain('This conversation is still empty')
+    expect(latestSession()).toBe(secondId)
+    child.write(`/resume ${sessionId}\r`)
+    await expect.poll(latestSession, { timeout: 20000 }).toBe(sessionId)
+    child.write('\x1b[110;5u')
+    await expect.poll(latestSession, { timeout: 20000 }).toBe(secondId)
     child.write('shortcut\r')
     await expect.poll(screen, { timeout: 20000 }).toContain('Reply to shortcut')
     expect(screen()).not.toContain('Reply to nshortcut')

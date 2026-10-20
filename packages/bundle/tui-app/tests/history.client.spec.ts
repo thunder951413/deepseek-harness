@@ -7,7 +7,7 @@ import { sessionsIn } from '../src/history.ts'
 import { SessionId, type SessionSummary } from '../src/port.ts'
 
 const row = (id: string, cwd?: string): SessionSummary => ({
-  id: SessionId(id), updatedAt: 0, running: false, ...cwd === undefined ? {} : { cwd },
+  id: SessionId(id), updatedAt: 0, running: false, blank: false, ...cwd === undefined ? {} : { cwd },
 })
 
 it('keeps conversations from the same physical directory and drops the rest', async ({ onTestFinished }) => {

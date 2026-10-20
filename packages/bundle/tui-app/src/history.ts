@@ -3,7 +3,12 @@ import { realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { SessionSummary } from './port.ts'
 
-async function canonical(path: string): Promise<string> {
+/**
+ * Resolve a directory the way Workspaces name it.
+ * @param path - directory as typed or recorded.
+ * @returns its physical path, or the lexical absolute path when it no longer exists.
+ */
+export async function canonical(path: string): Promise<string> {
   try {
     return await realpath(path)
   } catch (_error) {

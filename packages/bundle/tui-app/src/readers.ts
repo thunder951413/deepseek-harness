@@ -47,7 +47,7 @@ export function readSessionList(value: unknown): SessionSummary[] {
     if (id === undefined || row.origin === 'subagent') continue
     const title = str(dict(dict(row.projections).values).title)
     const cwd = str(row.cwd)
-    rows.push({ id: SessionId(id), updatedAt: num(row.updatedAt) ?? 0, running: row.running === true,
+    rows.push({ id: SessionId(id), updatedAt: num(row.updatedAt) ?? 0, running: row.running === true, blank: row.blank === true,
       ...title === undefined ? {} : { title }, ...cwd === undefined ? {} : { cwd } })
   }
   return rows.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -171,7 +171,9 @@ function readValues(value: unknown): Readings {
   const output = num(usage.outputTokens)
   const [turns, steps, ttftMs, ttftSteps, decodeMs, decodeTokens] =
     ['turns', 'steps', 'ttftMs', 'ttftSteps', 'decodeMs', 'decodeTokens'].map(key => num(stats[key]))
+  const title = str(values.title)
   return {
+    ...title === undefined || title === '' ? {} : { title },
     ...next === undefined ? {} : { next },
     ...uncachedInput === undefined || cacheRead === undefined || cacheWrite === undefined || output === undefined ? {}
       : { usage: { uncachedInput, cacheRead, cacheWrite, output } },
