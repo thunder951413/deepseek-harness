@@ -1,0 +1,61 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/session/command-title/README.md
+/:
+  en: c95a19f3a1d1adff
+  zh: ed32a2e10f6fd7af
+/deepseek-ai-dsh-command-title:
+  en: 400632baadb19af1
+  zh: 0349b4fc3a5df329
+/deepseek-ai-dsh-command-title/summary:
+  en: ed6dd6770ae9d643
+  zh: 3ea146ff30439150
+/deepseek-ai-dsh-command-title/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-command-title/use-this-package:
+  en: 00c2ba56134b8c79
+  zh: 429b6858b61769d5
+/deepseek-ai-dsh-command-title/use-this-package/using-the-command:
+  en: 256b7586361f764c
+  zh: bd7e74efd2d94a1a
+/deepseek-ai-dsh-command-title/use-this-package/what-you-see:
+  en: 2179e9c23f4437cf
+  zh: 6eb2969880d1595c
+/deepseek-ai-dsh-command-title/use-this-package/composing-the-command:
+  en: a466dd1fa72cc281
+  zh: 367441279335aa2b
+/deepseek-ai-dsh-command-title/understand-the-implementation:
+  en: 55197024cba97312
+  zh: 44e298db4e79c4e6
+/deepseek-ai-dsh-command-title/understand-the-implementation/design-philosophy:
+  en: 8344248a8039de93
+  zh: d3183a2a3b0143d9
+/deepseek-ai-dsh-command-title/understand-the-implementation/source-map:
+  en: ecea72d91532ed21
+  zh: dce0a638381a16f1
+/deepseek-ai-dsh-command-title/further-exploration:
+  en: 6c07b07db6b6cf66
+  zh: 5a58b047e807d249
+/deepseek-ai-dsh-command-title/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-command-title/model-experience/human-title-control:
+  en: 09d7493eb274e029
+  zh: 1736a240e866d667
+/deepseek-ai-dsh-command-title/model-experience/human-title-control/what-the-model-sees:
+  en: 4edfb7cf4bcb67ff
+  zh: db3ccf9ecf2babd3
+/deepseek-ai-dsh-command-title/model-experience/human-title-control/token-effect:
+  en: 2999d6aadb903e5b
+  zh: 8d6e914f64d60601
+/deepseek-ai-dsh-command-title/model-experience/human-title-control/kv-cache-effect:
+  en: d85630f3a9f29728
+  zh: 86f0f1d9b6c7481e
+/deepseek-ai-dsh-command-title/known-limitations-and-deferred-work:
+  en: 1196b89a3b1dcd66
+  zh: 0724fdc6c707387f
+/deepseek-ai-dsh-command-title/known-limitations-and-deferred-work/dev-note:
+  en: fc3478c2d09eb52a
+  zh: 277288f3fbcb695e

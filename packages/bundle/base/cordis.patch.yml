@@ -76,6 +76,10 @@
         maxOutputTokens: 4096
         timeoutMs: 60000
 
+    # Human `/title`: regenerate the title through the registered provider, or set it.
+    - id: command-title
+      name: '@deepseek-ai/dsh-command-title'
+
     - id: user-questions
       name: '@deepseek-ai/dsh-user-questions'
 

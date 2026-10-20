@@ -36,6 +36,8 @@ flowchart LR
   cfg --> plugin_dsh_base_session_title
   plugin_dsh_base_session_title_llm["session-title-llm<br/>@deepseek-ai/dsh-session-title-first-prompt-llm"]
   cfg --> plugin_dsh_base_session_title_llm
+  plugin_dsh_base_command_title["command-title<br/>@deepseek-ai/dsh-command-title"]
+  cfg --> plugin_dsh_base_command_title
   plugin_dsh_base_user_questions["user-questions<br/>@deepseek-ai/dsh-user-questions"]
   cfg --> plugin_dsh_base_user_questions
   plugin_dsh_base_agent["agent<br/>@deepseek-ai/dsh-agent"]
@@ -218,6 +220,7 @@ flowchart LR
 | `remote-access` | `@deepseek-ai/dsh-api-remote-access` |
 | `session-title` | `@deepseek-ai/dsh-session-title` |
 | `session-title-llm` | `@deepseek-ai/dsh-session-title-first-prompt-llm` |
+| `command-title` | `@deepseek-ai/dsh-command-title` |
 | `user-questions` | `@deepseek-ai/dsh-user-questions` |
 | `agent` | `@deepseek-ai/dsh-agent` |
 | `plugin-package-inventory-deepseek` | `@deepseek-ai/dsh-plugin-package-inventory-deepseek` |
