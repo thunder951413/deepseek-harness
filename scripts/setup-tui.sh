@@ -21,7 +21,9 @@ name="dsh"
 bin_dir="${HOME}/.local/bin"
 skip_build=0
 force=0
-marker="# managed by scripts/setup-tui.sh"
+# shellcheck source=dsh-wrapper.sh
+. "${root}/scripts/dsh-wrapper.sh"
+marker="$DSH_WRAPPER_MARKER"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -68,19 +70,7 @@ if [ "$skip_build" -eq 0 ]; then pnpm run build:artifacts; fi
 mkdir -p "$bin_dir"
 staging="${work}/staging"
 mkdir -p "$staging"
-cat > "${staging}/${name}" <<WRAPPER
-#!/bin/sh
-${marker}
-# scripts/sync-upstream-tui.sh rewrites the build output while it holds this lock.
-lock="\${DSH_HOME:-\$HOME/.dsh}/addons/dsh-tui/auto-update.lock"
-owner="\$(cat "\$lock/pid" 2>/dev/null || true)"
-if [ -n "\$owner" ] && kill -0 "\$owner" 2>/dev/null; then
-  echo "${name}: an update from the official repository is building; waiting for it (log: \${lock%.lock}.log)" >&2
-  while [ -n "\$owner" ] && kill -0 "\$owner" 2>/dev/null; do sleep 2; owner="\$(cat "\$lock/pid" 2>/dev/null || true)"; done
-fi
-exec node '${root}/apps/cli/lib/bin.js' "\$@"
-WRAPPER
-chmod +x "${staging}/${name}"
+write_dsh_wrapper "${staging}/${name}" "$name" "$root"
 mv -f "${staging}/${name}" "$command_path"
 
 version="0.0.0-local.$(git rev-parse --short HEAD 2>/dev/null || echo checkout)"

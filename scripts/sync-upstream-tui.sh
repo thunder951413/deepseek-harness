@@ -137,6 +137,8 @@ else
 fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work" "$lock"' EXIT
+# The dsh command from setup-tui.sh waits while the lock is held, except for this run's own children.
+export DSH_TUI_SYNC_PID="$$"
 record running "Merging ${remote}/${branch}"
 
 cd "$root"
@@ -167,8 +169,16 @@ pnpm install --frozen-lockfile || fail "dependency installation failed after mer
 pnpm run build:artifacts || fail "the build failed after merging ${commit}"
 pnpm exec vitest run packages/bundle/tui-app \
   || fail "terminal unit tests failed after merging ${commit}; the merge is kept and the installed terminal is unchanged"
-pnpm exec tsx scripts/release/create-tui-plugin.ts --out "${work}/release" --version "$version" \
-  || fail "packing the terminal failed at ${commit}"
-node "${work}/release/install.mjs" --dsh "$dsh_path" || fail "installing the terminal into ${dsh_path} failed"
+# shellcheck source=dsh-wrapper.sh
+. "${root}/scripts/dsh-wrapper.sh"
+if grep -qF "$DSH_WRAPPER_MARKER" "$dsh_path" 2>/dev/null; then
+  # A dsh from setup-tui.sh runs this checkout: rewrite the command too, so it matches the merged scripts.
+  bash "${root}/scripts/setup-tui.sh" --skip-build --name "$(basename "$dsh_path")" --bin-dir "$(dirname "$dsh_path")" \
+    || fail "reinstalling dsh and the terminal from ${commit} failed"
+else
+  pnpm exec tsx scripts/release/create-tui-plugin.ts --out "${work}/release" --version "$version" \
+    || fail "packing the terminal failed at ${commit}"
+  node "${work}/release/install.mjs" --dsh "$dsh_path" || fail "installing the terminal into ${dsh_path} failed"
+fi
 record updated "Merged ${behind} official commit(s); installed ${version}, which applies the next time dsh tui starts"
 echo "sync-upstream-tui: installed ${version}"
