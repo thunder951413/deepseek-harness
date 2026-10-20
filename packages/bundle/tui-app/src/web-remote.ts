@@ -15,6 +15,7 @@ import sessionInfo from '@deepseek-ai/dsh-api-session-controller/remote'
 import workspaceInfo from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import accountInfo from '@deepseek-ai/dsh-api-account-controller/remote'
 import questionInfo from '@deepseek-ai/dsh-user-questions/remote'
+import presetInfo from '@deepseek-ai/dsh-agent-preset-registry/remote'
 import type { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -28,7 +29,7 @@ import {
 } from './port.ts'
 import {
   readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings, readSessionList,
-  readWorkspaceId, readQueue, readSearch, readSkills,
+  readWorkspaceId, readQueue, readSearch, readSkills, readModes,
 } from './readers.ts'
 import { approvalCallText } from './wire-transcript.ts'
 
@@ -63,7 +64,7 @@ export class WebRemotePort implements HarnessPort {
   private readonly client = new Context()
   private readonly scopes = new WeakMap<object, WireSessionId>()
   private readonly features: { -readonly [Key in keyof Capabilities]: boolean } =
-    { models: true, readings: true, balance: true, questions: true, search: true, skills: true, management: true, queue: true,
+    { models: true, readings: true, balance: true, questions: true, search: true, skills: true, modes: true, management: true, queue: true,
       export: true }
   private connection: ConnectionHandle | undefined
   private startupSignal: AbortSignal | undefined
@@ -154,7 +155,7 @@ export class WebRemotePort implements HarnessPort {
         },
       }), 'tui.remote.agent-context')
       await port.client.plugin(Gateway)
-      for (const info of [sessionInfo, workspaceInfo, accountInfo, questionInfo]) {
+      for (const info of [sessionInfo, workspaceInfo, accountInfo, questionInfo, presetInfo]) {
         await port.client.remote.$mount({ package: info.package, descriptors: info.descriptors })
       }
       await port.waitReady(signal)
@@ -192,13 +193,13 @@ export class WebRemotePort implements HarnessPort {
     return readSessionList(this.required('session/list', await this.remote().session.list({}, signal)))
   }
 
-  async createSession(directory: string, reuse?: SessionId): Promise<SessionId> {
+  async createSession(directory: string, reuse?: SessionId, mode?: string): Promise<SessionId> {
     const workspace = this.required('workspace/create', await this.remote().workspace.create({ path: directory }))
     const workspaceId = readWorkspaceId(workspace)
     if (workspaceId === undefined) throw new Error('workspace/create: the Harness returned no Workspace identity')
     const created = readCreated(this.required('session/create',
       await this.remote().session.create({ workspaceId: workspaceId as WorkspaceId,
-        ...reuse === undefined ? {} : { sessionId: wire(reuse) } })))
+        ...reuse === undefined ? {} : { sessionId: wire(reuse) }, ...mode === undefined ? {} : { agentPreset: mode } })))
     if (created === undefined) throw new Error('session/create: the Harness returned no conversation identity')
     return created
   }
@@ -225,6 +226,14 @@ export class WebRemotePort implements HarnessPort {
 
   async skills(sessionId: SessionId, signal: AbortSignal) {
     return readSkills(this.optional('skills', 'skills/list', await this.remote().skills.list({ sessionId: wire(sessionId) }, signal)))
+  }
+
+  async modes(_signal: AbortSignal) {
+    return readModes(this.optional('modes', 'agentPresets/list', await this.remote().agentPresets.list()))
+  }
+
+  async selectMode(sessionId: SessionId, mode: string): Promise<void> {
+    this.required('agentPresets/select', await this.remote().agentPresets.select(wire(sessionId), mode))
   }
 
   async rename(sessionId: SessionId, title: string): Promise<void> {

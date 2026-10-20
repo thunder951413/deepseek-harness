@@ -79,7 +79,7 @@ export async function manageQueue(ui: TerminalUi, port: HarnessPort, id: Session
  * @param id - selected conversation.
  * @param signal - cancellation.
  * @returns an absolute path (`~/` expands to the home directory), or undefined after dismissal. */
-export async function askExportPath(ui: TerminalUi, id: SessionId, signal: AbortSignal): Promise<string | undefined> {
+export async function askExportPath(ui: Pick<TerminalUi, 'ask' | 'locale'>, id: SessionId, signal: AbortSignal): Promise<string | undefined> {
   const t = ui.locale.text.bind(ui.locale)
   const destination = (await ui.ask(t('Export destination (.zip); existing files are not overwritten'), signal,
     resolve(`dsh-${id.replace(/[^a-zA-Z0-9_-]/gu, '_')}.zip`)))?.trim()

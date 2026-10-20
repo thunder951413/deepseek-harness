@@ -1,7 +1,7 @@
 /** Terminal selection races, query failure containment, and command ownership. */
 import { expect, it, vi } from 'vitest'
 import { TerminalControls } from '../src/controls.ts'
-import { PendingMessageId, SessionId, Unsupported, type Balance, type ModelCatalogView, type ReadingsChange, type ReadingsResult } from '../src/port.ts'
+import { PendingMessageId, SessionId, Unsupported, type ModeChoice, type Balance, type ModelCatalogView, type ReadingsChange, type ReadingsResult } from '../src/port.ts'
 
 const catalog: ModelCatalogView = {
   default: { provider: 'test', model: 'model' }, failures: [],
@@ -20,6 +20,7 @@ function harness() {
     watchReadings: vi.fn(async function* () { yield* changes }),
     modelCatalog: vi.fn(async () => catalog),
     selectModel: vi.fn(async () => {}),
+    modes: vi.fn(async (): Promise<ModeChoice[]> => []),
     balance: vi.fn(async (): Promise<Balance> => null),
     async *watchAccount() { yield },
   }
@@ -286,4 +287,24 @@ it('shows the title and refreshes it when the Host announces a new one', async (
   changes.push({ sessionId: SessionId('s'), key: 'title' })
   await controls.watchSessions()
   expect(ui.conversationTitle).toHaveBeenLastCalledWith('Fix the queue')
+})
+
+it('names the work mode of the conversation in the status, falling back to the default, and treats a missing roster as none', async () => {
+  const { controls, services, ui } = harness()
+  const roster: ModeChoice[] = [{ id: 'standard', name: 'Standard', description: '', isDefault: true },
+    { id: 'ptc', name: 'PTC', description: 'Code mode', isDefault: false }]
+  vi.mocked(services.modes).mockResolvedValueOnce(roster)
+  expect(await controls.loadModes()).toEqual(roster)
+  await controls.select(SessionId('s'))
+  expect(controls.currentMode()?.id).toBe('standard')
+  expect(ui.metrics.mock.lastCall?.[0]).toMatch(/^Mode: Standard · Model:/u)
+  vi.mocked(services.readings).mockResolvedValueOnce({ kind: 'values', readings: { mode: 'ptc' } })
+  await controls.select(SessionId('s'))
+  expect(controls.currentMode()?.id).toBe('ptc')
+  expect(ui.metrics.mock.lastCall?.[1]).toBe('PTC')
+  vi.mocked(services.modes).mockRejectedValueOnce(new Unsupported('agentPresets/list'))
+  expect(await controls.loadModes()).toEqual([])
+  expect(controls.currentMode()).toBeUndefined()
+  vi.mocked(services.modes).mockRejectedValueOnce(new Error('offline'))
+  await expect(controls.loadModes()).rejects.toThrow('offline')
 })

@@ -130,6 +130,8 @@ export function apply(ctx: Context, config: Config): void {
   let historyMessages = config.historyMessages
   let selection = 0
   let viewed = false
+  /** Work mode chosen with /mode in this terminal; later conversations start in it. */
+  let preferredMode: string | undefined
   const prompted = new Set<SessionId>()
   let skills: readonly SkillSummary[] = []
   let interaction = Promise.resolve()
@@ -197,22 +199,24 @@ export function apply(ctx: Context, config: Config): void {
   }
   // A new conversation reuses this directory's newest empty one, as the Web client does, so starting the terminal
   // or pressing /new repeatedly leaves at most one empty conversation per directory.
+  const empty = (): boolean =>
+    selected !== undefined && viewed && transcript.entries.length === 0 && !transcript.working && !prompted.has(selected)
   const create = async (): Promise<void> => {
-    if (selected !== undefined && viewed && transcript.entries.length === 0 && !transcript.working && !prompted.has(selected)) {
+    if (empty()) {
       ui?.status(t('This conversation is still empty; type a message to start it'))
       return
     }
     // The Host reuses a Session only when its recorded directory equals the Workspace path exactly.
     const workspacePath = await canonical(process.cwd())
-    const empty = (await backend().listSessions(lifetime.signal))
+    const reusable = (await backend().listSessions(lifetime.signal))
       .find(item => item.blank && !item.running && item.id !== selected && item.cwd === workspacePath)
     let id: SessionId
     try {
-      id = await backend().createSession(process.cwd(), empty?.id)
+      id = await backend().createSession(process.cwd(), reusable?.id, preferredMode)
     } catch (error) {
       // Reuse only saves an empty conversation; when the Host refuses the named one, a new conversation still starts.
-      if (empty === undefined) throw error
-      id = await backend().createSession(process.cwd())
+      if (reusable === undefined) throw error
+      id = await backend().createSession(process.cwd(), undefined, preferredMode)
     }
     lifetime.signal.throwIfAborted()
     await select(id)
@@ -227,6 +231,31 @@ export function apply(ctx: Context, config: Config): void {
       result.items.map(item => `${item.id} · ${item.snippet}`), lifetime.signal)
     const match = index === undefined ? undefined : result.items[index]
     if (match !== undefined) await select(match.id)
+  }
+  // A conversation keeps its mode after its first message, so choosing another mode then starts a new conversation.
+  const chooseMode = async (): Promise<void> => {
+    const id = selected
+    if (ui === undefined || id === undefined || controls === undefined) return
+    const roster = await controls.loadModes()
+    if (roster.length === 0) { ui.status(t('This Harness offers no work modes')); return }
+    const current = controls.currentMode()?.id
+    const index = await ui.choose(t('Work mode'), roster.map(mode => ({
+      label: `${mode.id === current ? '● ' : '  '}${mode.name}`,
+      description: mode.broken === undefined ? `${mode.description}${mode.isDefault ? ` · ${t('default')}` : ''}`
+        : t('Unavailable: {reason}', { reason: mode.broken }),
+      search: `${mode.name} ${mode.id}`,
+    })), lifetime.signal, Math.max(0, roster.findIndex(mode => mode.id === current)))
+    const mode = index === undefined ? undefined : roster[index]
+    if (mode === undefined || mode.id === current) return
+    if (mode.broken !== undefined) { ui.status(t('{mode} is unavailable: {reason}', { mode: mode.name, reason: mode.broken })); return }
+    preferredMode = mode.id
+    if (empty()) {
+      await backend().selectMode(id, mode.id)
+      ui.status(t('Work mode: {mode}', { mode: mode.name }))
+      return
+    }
+    await create()
+    ui.status(t('Started a new conversation in {mode}; a conversation keeps its mode after its first message', { mode: mode.name }))
   }
   const pick = async (): Promise<void> => {
     let all = false
@@ -304,7 +333,7 @@ export function apply(ctx: Context, config: Config): void {
       else { ui.status(t('Reconnecting…')); backend().reconnect() }
       return
     }
-    if (['/new', '/clear', '/resume', '/tools', '/skills', '/help', '/exit', '/web'].includes(command ?? '')) {
+    if (['/new', '/clear', '/resume', '/tools', '/skills', '/mode', '/help', '/exit', '/web'].includes(command ?? '')) {
       ui?.accepted()
       if (command === '/new' || command === '/clear') await create()
       else if (command === '/web') await ui?.view(t('Browser sign-in link'), `${backend().url}\n\n${t('Open it in a browser to configure providers and credentials. Treat it like a password.')}`, lifetime.signal)
@@ -313,6 +342,7 @@ export function apply(ctx: Context, config: Config): void {
         else await select(SessionId(argument))
       } else if (command === '/tools') await inspectTools()
       else if (command === '/skills') await chooseSkill()
+      else if (command === '/mode') await chooseMode()
       else if (command === '/help') await ui?.view(t('Commands'),
         `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}${skills.length === 0 ? '' : `\n\n${t('Skills')}\n\n${skills.map(skill => `/${skill.name}${skill.description === '' ? '' : ` — ${skill.description}`}`).join('\n')}`}`, lifetime.signal)
       else exit(0)
@@ -452,7 +482,8 @@ export function apply(ctx: Context, config: Config): void {
           const signal = AbortSignal.any([lifetime.signal, liveControls.signal])
           controls = new TerminalControls(backend(), ui, signal, version, locale)
           const active = controls
-          for (const action of [() => active.watchSessions(), () => active.watchAccount(), () => active.loadModels()]) {
+          for (const action of [() => active.watchSessions(), () => active.watchAccount(), () => active.loadModels(),
+            async () => { await active.loadModes() }]) {
             run(async () => { try { await action() } catch (error) { if (!signal.aborted) throw error } })
           }
         }

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { expect, it, vi } from 'vitest'
 import { askExportPath, exportArchive } from '../src/actions.ts'
+import { TerminalLocale } from '../src/locale.ts'
 import { SessionId } from '../src/port.ts'
 
 it('streams bytes, refuses overwrite, and removes an owned partial file after failure', async () => {
@@ -27,8 +28,8 @@ it('streams bytes, refuses overwrite, and removes an owned partial file after fa
 
 it('trims the export destination, expands the home directory, and treats blank input as dismissal', async () => {
   const signal = new AbortController().signal
-  const ask = vi.fn(async (): Promise<string | undefined> => '  ~/logs/a.zip \n')
-  const ui = { ask, locale: { text: (phrase: string) => phrase } } as unknown as Parameters<typeof askExportPath>[0]
+  const ask = vi.fn(async (_title: string, _signal: AbortSignal, _initial?: string): Promise<string | undefined> => '  ~/logs/a.zip \n')
+  const ui = { ask, locale: new TerminalLocale() }
   expect(await askExportPath(ui, SessionId('a/b'), signal)).toBe(join(homedir(), 'logs', 'a.zip'))
   expect(ask).toHaveBeenCalledWith(expect.any(String), signal, expect.stringMatching(/dsh-a_b\.zip$/u))
   ask.mockResolvedValueOnce('   ')

@@ -6,7 +6,7 @@
  */
 import type {
   Balance, CatalogModel, FollowFrame, Json, JournalEvent, ModelCatalogView, ModelChoice, Readings, ReadingsChange,
-  ReadingsResult, SessionSummary, SkillSummary, StreamFrame, Wallet, PendingMessage,
+  ReadingsResult, SessionSummary, SkillSummary, ModeChoice, StreamFrame, Wallet, PendingMessage,
 } from './port.ts'
 import { SessionId, PendingMessageId } from './port.ts'
 
@@ -125,6 +125,22 @@ export function readQueue(value: unknown): PendingMessage[] | undefined {
   }))
 }
 
+/** Read the work-mode roster, ignoring entries without an identifier.
+ * @param value - `agentPresets/list` response.
+ * @returns modes in the Harness's order; throws when the response is not a roster. */
+export function readModes(value: unknown): ModeChoice[] {
+  const presets = dict(value).presets
+  if (!Array.isArray(presets)) throw new Error('Invalid work mode response')
+  return presets.flatMap((item) => {
+    const row = dict(item)
+    const id = str(row.id)
+    if (id === undefined) return []
+    const broken = str(row.broken)
+    return [{ id, name: str(row.name) ?? id, description: str(row.description) ?? '', isDefault: row.isDefault === true,
+      ...broken === undefined ? {} : { broken } }]
+  })
+}
+
 /** Read the skill catalog, ignoring entries without a name.
  * @param value - `skills/list` response.
  * @returns names with their descriptions; throws when the response is not a skill list. */
@@ -172,8 +188,10 @@ function readValues(value: unknown): Readings {
   const [turns, steps, ttftMs, ttftSteps, decodeMs, decodeTokens] =
     ['turns', 'steps', 'ttftMs', 'ttftSteps', 'decodeMs', 'decodeTokens'].map(key => num(stats[key]))
   const title = str(values.title)
+  const mode = str(values.agentPreset)
   return {
     ...title === undefined || title === '' ? {} : { title },
+    ...mode === undefined ? {} : { mode },
     ...next === undefined ? {} : { next },
     ...uncachedInput === undefined || cacheRead === undefined || cacheWrite === undefined || output === undefined ? {}
       : { usage: { uncachedInput, cacheRead, cacheWrite, output } },

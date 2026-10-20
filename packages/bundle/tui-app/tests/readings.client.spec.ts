@@ -47,3 +47,10 @@ it('labels the banner model with its reasoning effort only when one is selected'
   expect(sessionReadings({}, { provider: 'test', model: 'm' }, null).model).toBe('test/m')
   expect(sessionReadings({}, undefined, null).model).toBeUndefined()
 })
+
+it('prefixes the status and the banner label with the work mode when the Harness offers modes', () => {
+  const reading = sessionReadings({}, { provider: 'test', model: 'm', reasoningEffort: 'high' }, null, undefined, 'Standard')
+  expect(reading.compact).toMatch(/^Mode: Standard · Model: test\/m/u)
+  expect(reading.model).toBe('Standard · test/m · high')
+  expect(sessionReadings({}, undefined, null, undefined, 'Standard').model).toBe('Standard')
+})

@@ -18,7 +18,7 @@ export const terminalCommands: SlashCommand[] = [
   { name: 'web', description: 'Show the browser sign-in link' },
   { name: 'tools', description: 'Inspect tool arguments and output' },
   ...[
-    ['skills', 'Choose a skill to start the message with'], ['queue', 'Manage pending messages'], ['steer', 'Send an instruction at the next model step'],
+    ['skills', 'Choose a skill to start the message with'], ['mode', 'Choose the work mode'], ['queue', 'Manage pending messages'], ['steer', 'Send an instruction at the next model step'],
     ['search', 'Search conversation content'], ['rename', 'Rename conversation'], ['fork', 'Fork from the latest completed turn'],
     ['export', 'Export the full Session ZIP'], ['history', 'Load older history'], ['language', 'Choose interface language'],
     ['layout', 'Choose status density'], ['reconnect', 'Reconnect to the Harness'],

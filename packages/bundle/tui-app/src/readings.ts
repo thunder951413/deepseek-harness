@@ -45,10 +45,11 @@ export function balanceText(balance: BalanceReading, locale = new TerminalLocale
  * @param selection - next request's selection, or the deployment default for a blank Session.
  * @param balance - account wallet query outcome.
  * @param locale - terminal interface language.
- * @returns compact status, a detailed statistics panel, and the `model · effort` label (undefined until a model is selected).
+ * @param mode - display name of the conversation's work mode; omitted when the Harness offers no modes.
+ * @returns compact status, a detailed statistics panel, and the `mode · model · effort` label (undefined while none of them is known).
  */
 export function sessionReadings(
-  values: Readings, selection: ModelChoice | undefined, balance: BalanceReading, locale = new TerminalLocale(),
+  values: Readings, selection: ModelChoice | undefined, balance: BalanceReading, locale = new TerminalLocale(), mode?: string,
 ): { compact: string; details: string; model: string | undefined } {
   const stats = values.stats
   const usage = values.usage
@@ -59,7 +60,7 @@ export function sessionReadings(
   const effort = selection?.reasoningEffort ?? locale.text('Unavailable')
   const cache = hit === null ? locale.text('Unavailable') : `${hit}%`
   const throughput = speed === null ? locale.text('Unavailable') : `${speed} tok/s`
-  const compact = `${locale.text('Model')}: ${model} · ${locale.text('Reasoning')}: ${effort}\n${locale.text('Cache')}: ${cache} · ${locale.text('Output')}: ${throughput}\n${locale.text('Balance')}: ${balanceText(balance, locale)}`
+  const compact = `${mode === undefined ? '' : `${locale.text('Mode')}: ${mode} · `}${locale.text('Model')}: ${model} · ${locale.text('Reasoning')}: ${effort}\n${locale.text('Cache')}: ${cache} · ${locale.text('Output')}: ${throughput}\n${locale.text('Balance')}: ${balanceText(balance, locale)}`
   const details = [compact, '', locale.text('Whole session · provider-reported token usage'),
     `${locale.text('Input')}: ${input ?? locale.text('Unavailable')} · ${locale.text('Output')}: ${usage?.output ?? locale.text('Unavailable')}`,
     `${locale.text('Cache read')}: ${usage?.cacheRead ?? locale.text('Unavailable')} · ${locale.text('Cache write')}: ${usage?.cacheWrite ?? locale.text('Unavailable')}`,
@@ -68,6 +69,6 @@ export function sessionReadings(
     `${locale.text('Average first token')}: ${stats !== undefined && stats.ttftSteps > 0 ? `${Math.round(stats.ttftMs / stats.ttftSteps)} ms` : locale.text('Unavailable')}`,
     locale.text('Balance is the signed-in DeepSeek account; configure providers and credentials in Web.'),
   ].join('\n')
-  return { compact, details, model: selection === undefined ? undefined
-    : selection.reasoningEffort === undefined ? model : `${model} · ${selection.reasoningEffort}` }
+  const label = [mode, selection === undefined ? undefined : model, selection?.reasoningEffort].filter(part => part !== undefined)
+  return { compact, details, model: label.length === 0 ? undefined : label.join(' · ') }
 }

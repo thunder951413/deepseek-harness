@@ -70,6 +70,9 @@
       "path": "../../api/account-controller"
     },
     {
+      "path": "../../preset/agent-preset-registry"
+    },
+    {
       "path": "../../typert/registry"
     },
     {

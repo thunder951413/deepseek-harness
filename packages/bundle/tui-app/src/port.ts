@@ -43,6 +43,19 @@ export interface PendingMessage {
   readonly target: 'next-turn' | 'next-step'
 }
 
+/** One work mode: an agent preset the Harness composes for a conversation. */
+export interface ModeChoice {
+  readonly id: string
+  /** Published display name, or the identifier when the mode publishes none. */
+  readonly name: string
+  /** One sentence on what the mode is for; empty when none is published. */
+  readonly description: string
+  /** Conversations that name no mode use this one. */
+  readonly isDefault: boolean
+  /** Why the mode cannot start a conversation; absent when it can. */
+  readonly broken?: string
+}
+
 /** One skill the human can invoke by typing `/name` at the start of a message. */
 export interface SkillSummary {
   readonly name: string
@@ -107,6 +120,8 @@ export interface ModelCatalogView {
 export interface Readings {
   /** Current title: the Host's fallback from the first message, a generated title, or a user rename. */
   readonly title?: string
+  /** Work mode the conversation runs; absent means the Harness default. */
+  readonly mode?: string
   readonly next?: ModelChoice
   readonly usage?: {
     readonly uncachedInput: number
@@ -189,6 +204,8 @@ export interface Capabilities {
   readonly search: boolean
   /** Skill catalog. */
   readonly skills: boolean
+  /** Work modes. */
+  readonly modes: boolean
   readonly management: boolean
   readonly queue: boolean
   readonly export: boolean
@@ -209,6 +226,15 @@ export interface HarnessPort {
    * @param signal - cancellation.
    * @returns matching identities and excerpts, plus whether more matches exist. */
   search(query: string, signal: AbortSignal): Promise<{ items: readonly { id: SessionId; snippet: string }[]; hasMore: boolean }>
+  /** List the work modes.
+   * @param signal - cancellation.
+   * @returns every declared mode, including ones that cannot start; throws `Unsupported` when the Harness composes none. */
+  modes(signal: AbortSignal): Promise<ModeChoice[]>
+  /** Change the work mode of a conversation that has not started.
+   * @param sessionId - conversation.
+   * @param mode - mode identifier.
+   * @returns after the Host records the mode; the Host rejects a conversation that has started. */
+  selectMode(sessionId: SessionId, mode: string): Promise<void>
   /** List the skills a message can invoke with a leading `/name`.
    * @param sessionId - conversation whose directory and preset select the catalog.
    * @param signal - cancellation.
@@ -260,9 +286,10 @@ export interface HarnessPort {
    * @param directory - absolute working directory.
    * @param reuse - empty conversation of the same directory to reuse; the Harness creates a new one instead when
    * that conversation has started a turn, was archived, or is held by another process.
+   * @param mode - work mode for the conversation; omitted uses the Harness default, also for a reused one.
    * @returns the reused or new conversation identity.
    */
-  createSession(directory: string, reuse?: SessionId): Promise<SessionId>
+  createSession(directory: string, reuse?: SessionId, mode?: string): Promise<SessionId>
   /**
    * Follow a conversation from a bounded opening window.
    * @param sessionId - conversation to follow.

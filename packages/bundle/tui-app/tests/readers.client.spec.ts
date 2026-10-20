@@ -1,8 +1,8 @@
 /** Tolerant readers accept additive wire changes and degrade malformed optional data. */
 import { expect, it } from 'vitest'
 import {
-  readQueue, readSearch, readSkills, json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings,
-  readSessionList, readWorkspaceId,
+  readQueue, readSearch, readSkills, readModes, json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame,
+  readReadings, readSessionList, readWorkspaceId,
 } from '../src/readers.ts'
 
 it('keeps plain JSON and replaces members that cannot be serialized', () => {
@@ -124,4 +124,13 @@ it('reads the current title and ignores an empty or missing one', () => {
   expect(readReadings({ kind: 'sequenced', values: { title: 'Fix the queue' } })).toEqual({ kind: 'values', readings: { title: 'Fix the queue' } })
   expect(readReadings({ kind: 'sequenced', values: { title: '' } })).toEqual({ kind: 'values', readings: {} })
   expect(readReadings({ kind: 'sequenced', values: { title: null } })).toEqual({ kind: 'values', readings: {} })
+})
+
+it('reads work modes with display fallbacks and the mode of a conversation', () => {
+  expect(readModes({ presets: [{ id: 'standard', name: 'Standard', description: 'Default', isDefault: true },
+    { id: 'ptc', broken: 'missing runtime' }, { name: 'nameless' }] })).toEqual([
+    { id: 'standard', name: 'Standard', description: 'Default', isDefault: true },
+    { id: 'ptc', name: 'ptc', description: '', isDefault: false, broken: 'missing runtime' }])
+  expect(() => readModes({ presets: 'none' })).toThrow('Invalid work mode')
+  expect(readReadings({ kind: 'sequenced', values: { agentPreset: 'ptc' } })).toEqual({ kind: 'values', readings: { mode: 'ptc' } })
 })

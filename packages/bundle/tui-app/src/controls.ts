@@ -1,6 +1,6 @@
 /** Model selection and live account/session readings owned by one terminal lifetime. */
 import { TerminalLocale } from './locale.ts'
-import { Unsupported, type HarnessPort, type ModelCatalogView, type ModelChoice, type Readings, type SessionId } from './port.ts'
+import { Unsupported, type HarnessPort, type ModeChoice, type ModelCatalogView, type ModelChoice, type Readings, type SessionId } from './port.ts'
 import { sessionReadings, type BalanceReading } from './readings.ts'
 import type { TerminalUi } from './ui.ts'
 
@@ -9,6 +9,7 @@ export class TerminalControls {
   private selected: SessionId | undefined
   private values: Readings = {}
   private catalog: ModelCatalogView | undefined
+  private modes: readonly ModeChoice[] = []
   private balance: BalanceReading = null
   private balanceRequest: Promise<void> | undefined
   private projectionGeneration = 0
@@ -23,7 +24,7 @@ export class TerminalControls {
    * @param locale - terminal interface language.
    */
   constructor(private readonly ctx: Pick<HarnessPort,
-    'queue' | 'readings' | 'watchReadings' | 'modelCatalog' | 'selectModel' | 'balance' | 'watchAccount'>, private readonly ui: Pick<TerminalUi, 'queueCount' | 'metrics' | 'conversationTitle' | 'choose' | 'view' | 'accepted'>, private readonly signal: AbortSignal, private readonly version: string, private readonly locale = new TerminalLocale()) {
+    'queue' | 'readings' | 'watchReadings' | 'modelCatalog' | 'selectModel' | 'modes' | 'balance' | 'watchAccount'>, private readonly ui: Pick<TerminalUi, 'queueCount' | 'metrics' | 'conversationTitle' | 'choose' | 'view' | 'accepted'>, private readonly signal: AbortSignal, private readonly version: string, private readonly locale = new TerminalLocale()) {
     this.render()
   }
 
@@ -37,9 +38,33 @@ export class TerminalControls {
 
   private cancelled(): boolean { return this.signal.aborted }
 
+  /**
+   * Resolve the selected conversation's work mode against the loaded roster.
+   * @returns the named mode, the default mode when the conversation names none, or undefined without a roster.
+   */
+  currentMode(): ModeChoice | undefined {
+    const id = this.values.mode
+    return this.modes.find(mode => id === undefined ? mode.isDefault : mode.id === id)
+  }
+
+  /**
+   * Load the work-mode roster; a Harness without modes leaves it empty.
+   * @returns the roster, which also names the mode shown in the status.
+   */
+  async loadModes(): Promise<readonly ModeChoice[]> {
+    try {
+      this.modes = await this.ctx.modes(this.signal)
+    } catch (error) {
+      if (!(error instanceof Unsupported)) throw error
+      this.modes = []
+    }
+    this.render()
+    return this.modes
+  }
+
   private render(): void {
     if (this.signal.aborted) return
-    const reading = sessionReadings(this.values, this.current(), this.balance, this.locale)
+    const reading = sessionReadings(this.values, this.current(), this.balance, this.locale, this.currentMode()?.name)
     this.ui.metrics(this.projectionError === undefined ? reading.compact : `${reading.compact}\n${this.projectionError}`, reading.model)
     this.ui.conversationTitle(this.values.title)
   }
@@ -117,7 +142,7 @@ export class TerminalControls {
       for await (const change of this.ctx.watchReadings(this.signal)) {
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key === 'inbox')) void this.refreshQueue()
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key !== undefined
-          && ['title', 'modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
+          && ['title', 'agentPreset', 'modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
       }
     } catch (error) {
       if (!this.signal.aborted) {
@@ -192,7 +217,7 @@ export class TerminalControls {
     this.ui.accepted()
     if (command === '/stats') {
       await Promise.all([this.refreshProjections(), this.refreshBalance()])
-      const reading = sessionReadings(this.values, this.current(), this.balance, this.locale)
+      const reading = sessionReadings(this.values, this.current(), this.balance, this.locale, this.currentMode()?.name)
       await this.ui.view(this.locale.text('Statistics'), `${reading.details}\n${this.projectionError ?? ''}`, this.signal)
       return true
     }
