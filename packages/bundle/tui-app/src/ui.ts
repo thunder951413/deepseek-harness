@@ -268,7 +268,8 @@ export class TerminalUi {
     backgrounds: Tints, readonly locale = new TerminalLocale()) {
     this.bar = new StatusBar(locale)
     this.welcome = new WelcomeBanner(locale, () => this.terminal.rows)
-    this.welcome.info = { ...this.welcome.info, commands: terminalCommands.map(command => ({ name: command.name, description: command.description ?? '' })) }
+    this.welcome.info = { ...this.welcome.info,
+      commands: terminalCommands.map(command => ({ name: command.name, description: command.description })) }
     this.panel = new ActivityPanel(locale)
     this.paint = inputBackground(backgrounds.input)
     this.painters = { user: blockBackground(backgrounds.user), assistant: blockBackground(backgrounds.assistant),

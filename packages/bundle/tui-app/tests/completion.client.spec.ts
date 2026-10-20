@@ -189,3 +189,19 @@ it('offers Harness commands and skills after the terminal commands without letti
   completion.setDirectory(root)
   expect(completion.isCommand('/dsh-doc')).toBe(true)
 })
+
+it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('counts several skipped directories in one notice', async ({ onTestFinished }) => {
+  const root = await mkdtemp(join(tmpdir(), 'tui-skipped-'))
+  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+  for (const name of ['one', 'two']) {
+    await mkdir(join(root, name))
+    onTestFinished(async () => { await chmod(join(root, name), 0o700) })
+    await chmod(join(root, name), 0)
+  }
+  await writeFile(join(root, 'visible.txt'), '')
+  const report = vi.fn()
+  const completion = new ProjectCompletion(root, 8, 100, report)
+  onTestFinished(async () => { await completion.dispose() })
+  await completion.getSuggestions(['@'], 0, 1, { signal: new AbortController().signal })
+  expect(report).toHaveBeenCalledWith('File completion is partial: skipped 2 unreadable directories. Enter a file path manually if needed.')
+})

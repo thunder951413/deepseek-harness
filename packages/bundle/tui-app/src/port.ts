@@ -8,18 +8,18 @@
 export type Json = string | number | boolean | null | readonly Json[] | { readonly [key: string]: Json }
 
 /** Opaque conversation identity. */
-export type SessionId = string & { readonly __sessionId: never }
+export type ConversationId = string & { readonly __conversationId: never }
 
 /**
  * Brand a conversation identity received from a user, a Harness, or an earlier run.
  * @param value - non-empty identity text.
  * @returns the branded identity.
  */
-export function SessionId(value: string): SessionId { return value as SessionId }
+export function ConversationId(value: string): ConversationId { return value as ConversationId }
 
 /** One persisted conversation in a history list. */
 export interface SessionSummary {
-  readonly id: SessionId
+  readonly id: ConversationId
   readonly updatedAt: number
   readonly running: boolean
   readonly title?: string
@@ -184,7 +184,7 @@ export type Balance = null
 /** A live change that should refresh readings. */
 export interface ReadingsChange {
   /** Absent for a full baseline. */
-  readonly sessionId?: SessionId
+  readonly sessionId?: ConversationId
   readonly key?: string
 }
 
@@ -206,7 +206,7 @@ export interface PortAnswer {
 
 /** A pending tool approval. */
 export interface PortApproval {
-  readonly sessionId: SessionId
+  readonly sessionId: ConversationId
   readonly toolName: string
   readonly callId?: string
   readonly reason?: string
@@ -218,7 +218,7 @@ export type PortApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'u
 
 /** A pending question set. */
 export interface PortQuestionRequest {
-  readonly sessionId: SessionId
+  readonly sessionId: ConversationId
   readonly questions: readonly PortQuestion[]
   readonly signal?: AbortSignal
   /** A timed wait the terminal must claim while it holds the foreground. */
@@ -255,23 +255,23 @@ export interface HarnessPort {
    * @param query - nonempty literal query.
    * @param signal - cancellation.
    * @returns matching identities and excerpts, plus whether more matches exist. */
-  search(query: string, signal: AbortSignal): Promise<{ items: readonly { id: SessionId; snippet: string }[]; hasMore: boolean }>
+  search(query: string, signal: AbortSignal): Promise<{ items: readonly { id: ConversationId; snippet: string }[]; hasMore: boolean }>
   /** List the Host's slash commands for a conversation.
    * @param sessionId - conversation whose composition selects the commands.
    * @returns commands in the Host's order; throws `Unsupported` when the Harness has no command registry. */
-  hostCommands(sessionId: SessionId): Promise<HostCommand[]>
+  hostCommands(sessionId: ConversationId): Promise<HostCommand[]>
   /** Run one Host slash-command line in a conversation.
    * @param sessionId - conversation.
    * @param line - the whole line, leading slash included.
    * @returns whether a command matched and what it reported. */
-  runCommand(sessionId: SessionId, line: string): Promise<CommandOutcome>
+  runCommand(sessionId: ConversationId, line: string): Promise<CommandOutcome>
   /** List the permission presets a conversation can switch to.
    * @returns presets in the Host's order; throws `Unsupported` when the Harness has none. */
   permissionPresets(): Promise<PermissionChoice[]>
   /** Read which conversations the Workspace browser has archived.
    * @param signal - cancellation.
    * @returns archived conversation identities; throws when the Workspace state cannot be read. */
-  archivedSessions(signal: AbortSignal): Promise<ReadonlySet<SessionId>>
+  archivedSessions(signal: AbortSignal): Promise<ReadonlySet<ConversationId>>
   /** List the work modes.
    * @param signal - cancellation.
    * @returns every declared mode, including ones that cannot start; throws `Unsupported` when the Harness composes none. */
@@ -280,37 +280,37 @@ export interface HarnessPort {
    * @param sessionId - conversation.
    * @param mode - mode identifier.
    * @returns after the Host records the mode; the Host rejects a conversation that has started. */
-  selectMode(sessionId: SessionId, mode: string): Promise<void>
+  selectMode(sessionId: ConversationId, mode: string): Promise<void>
   /** List the skills a message can invoke with a leading `/name`.
    * @param sessionId - conversation whose directory and preset select the catalog.
    * @param signal - cancellation.
    * @returns user-invocable skills in the Harness's order; throws `Unsupported` when the Harness has no skill catalog. */
-  skills(sessionId: SessionId, signal: AbortSignal): Promise<SkillSummary[]>
+  skills(sessionId: ConversationId, signal: AbortSignal): Promise<SkillSummary[]>
   /** Rename a conversation.
    * @param sessionId - conversation.
    * @param title - nonempty display title.
    * @returns after the server commits the title. */
-  rename(sessionId: SessionId, title: string): Promise<void>
+  rename(sessionId: ConversationId, title: string): Promise<void>
   /** Fork the latest completed turn.
    * @param sessionId - source conversation.
    * @returns newly created conversation identity. */
-  fork(sessionId: SessionId): Promise<SessionId>
+  fork(sessionId: ConversationId): Promise<ConversationId>
   /** Read editable pending human messages.
    * @param sessionId - conversation.
    * @param signal - cancellation.
    * @returns current queue; throws when the projection is unavailable. */
-  queue(sessionId: SessionId, signal: AbortSignal): Promise<PendingMessage[]>
+  queue(sessionId: ConversationId, signal: AbortSignal): Promise<PendingMessage[]>
   /** Mutate a still-pending message; the Host rejects messages already claimed.
    * @param sessionId - conversation.
    * @param id - pending message identity.
    * @param action - removal, next-step steering, or replacement text.
    * @returns after the mutation commits. */
-  updateQueue(sessionId: SessionId, id: PendingMessageId, action: { kind: 'remove' | 'steer' } | { kind: 'edit'; text: string }): Promise<void>
+  updateQueue(sessionId: ConversationId, id: PendingMessageId, action: { kind: 'remove' | 'steer' } | { kind: 'edit'; text: string }): Promise<void>
   /** Download the complete persisted Session ZIP.
    * @param sessionId - conversation.
    * @param signal - cancellation.
    * @returns authenticated archive bytes; the launch credential is never added. */
-  exportLog(sessionId: SessionId, signal: AbortSignal): AsyncIterable<Uint8Array>
+  exportLog(sessionId: ConversationId, signal: AbortSignal): AsyncIterable<Uint8Array>
   /** Observe transport state and established generation changes.
    * @param listener - receives current connection state.
    * @returns disposer for the subscription. */
@@ -335,7 +335,7 @@ export interface HarnessPort {
    * @param mode - work mode for the conversation; omitted uses the Harness default, also for a reused one.
    * @returns the reused or new conversation identity.
    */
-  createSession(directory: string, reuse?: SessionId, mode?: string): Promise<SessionId>
+  createSession(directory: string, reuse?: ConversationId, mode?: string): Promise<ConversationId>
   /**
    * Follow a conversation from a bounded opening window.
    * @param sessionId - conversation to follow.
@@ -343,7 +343,7 @@ export interface HarnessPort {
    * @param signal - cancellation.
    * @returns snapshot, durable events, and assistant stream frames.
    */
-  follow(sessionId: SessionId, historyMessages: number, signal: AbortSignal): AsyncIterable<FollowFrame>
+  follow(sessionId: ConversationId, historyMessages: number, signal: AbortSignal): AsyncIterable<FollowFrame>
   /**
    * Queue a user message.
    * @param sessionId - conversation.
@@ -351,12 +351,12 @@ export interface HarnessPort {
    * @param signal - cancellation of the admission request.
    * @param mode - queue for a later turn; steer applies at the next model step. Omission queues.
    */
-  prompt(sessionId: SessionId, text: string, signal: AbortSignal, mode?: 'queue' | 'steer'): Promise<void>
+  prompt(sessionId: ConversationId, text: string, signal: AbortSignal, mode?: 'queue' | 'steer'): Promise<void>
   /**
    * Stop generation in a conversation.
    * @param sessionId - conversation.
    */
-  cancel(sessionId: SessionId): Promise<void>
+  cancel(sessionId: ConversationId): Promise<void>
   /**
    * Find the arguments of a tool call that needs approval.
    * @param sessionId - conversation.
@@ -364,14 +364,14 @@ export interface HarnessPort {
    * @param signal - cancellation.
    * @returns tool name and arguments, or undefined when the journal does not show them.
    */
-  readToolCall(sessionId: SessionId, callId: string, signal: AbortSignal): Promise<string | undefined>
+  readToolCall(sessionId: ConversationId, callId: string, signal: AbortSignal): Promise<string | undefined>
   /**
    * Read whole-conversation readings.
    * @param sessionId - conversation.
    * @param signal - cancellation.
    * @returns readings, or undefined when the conversation has none.
    */
-  readings(sessionId: SessionId, signal: AbortSignal): Promise<ReadingsResult | undefined>
+  readings(sessionId: ConversationId, signal: AbortSignal): Promise<ReadingsResult | undefined>
   /**
    * Observe changes that invalidate readings.
    * @param signal - cancellation.
@@ -388,7 +388,7 @@ export interface HarnessPort {
    * @param sessionId - conversation.
    * @param choice - provider, model, and effort.
    */
-  selectModel(sessionId: SessionId, choice: ModelChoice): Promise<void>
+  selectModel(sessionId: ConversationId, choice: ModelChoice): Promise<void>
   /**
    * Observe account changes.
    * @param signal - cancellation.
@@ -418,7 +418,7 @@ export interface HarnessPort {
    * @param signal - claim lifetime.
    * @returns frames until cancellation.
    */
-  holdQuestion(sessionId: SessionId, callId: string, signal: AbortSignal): AsyncIterable<unknown>
+  holdQuestion(sessionId: ConversationId, callId: string, signal: AbortSignal): AsyncIterable<unknown>
   /** Release the connection.
    * @returns after transport and answer tasks have closed. */
   dispose(): Promise<void>

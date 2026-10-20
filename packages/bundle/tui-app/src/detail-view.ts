@@ -83,6 +83,7 @@ export class DetailView implements Component, Focusable {
     if (this.matches.length === 0) return
     this.match = this.match < 0 ? (direction > 0 ? 0 : this.matches.length - 1)
       : (this.match + direction + this.matches.length) % this.matches.length
+    /* v8 ignore next -- unreachable fallback: the modulo above keeps the index inside the non-empty match list. */
     this.offset = this.matches[this.match] ?? 0
   }
 }

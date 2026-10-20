@@ -2,7 +2,7 @@
 import { open, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { HarnessPort, SessionId } from './port.ts'
+import type { HarnessPort, ConversationId } from './port.ts'
 import type { TerminalUi } from './ui.ts'
 import type { TerminalView } from './transcript.ts'
 
@@ -12,7 +12,7 @@ import type { TerminalView } from './transcript.ts'
  * @param path - destination, which must not already exist.
  * @param signal - cancellation.
  * @returns after all bytes and the file handle have been flushed and closed. */
-export async function exportArchive(port: Pick<HarnessPort, 'exportLog'>, id: SessionId, path: string, signal: AbortSignal): Promise<void> {
+export async function exportArchive(port: Pick<HarnessPort, 'exportLog'>, id: ConversationId, path: string, signal: AbortSignal): Promise<void> {
   const file = await open(path, 'wx', 0o600)
   try {
     for await (const chunk of port.exportLog(id, signal)) { signal.throwIfAborted(); await file.writeFile(chunk) }
@@ -31,7 +31,7 @@ export async function exportArchive(port: Pick<HarnessPort, 'exportLog'>, id: Se
  * @param transcript - current retained transcript.
  * @param signal - selection lifetime.
  * @returns after the browser is dismissed. */
-export async function browseTools(ui: TerminalUi, transcript: TerminalView, signal: AbortSignal): Promise<void> {
+export async function browseTools(ui: Pick<TerminalUi, 'locale' | 'choose' | 'view'>, transcript: TerminalView, signal: AbortSignal): Promise<void> {
   const t = ui.locale.text.bind(ui.locale)
   const all = transcript.entries.flatMap(entry => entry.group?.calls ?? []).toReversed()
   let failed = false
@@ -58,7 +58,8 @@ export async function browseTools(ui: TerminalUi, transcript: TerminalView, sign
  * @param id - selected conversation.
  * @param signal - selection lifetime.
  * @returns after dismissal or when no editable messages remain. */
-export async function manageQueue(ui: TerminalUi, port: HarnessPort, id: SessionId, signal: AbortSignal): Promise<void> {
+export async function manageQueue(ui: Pick<TerminalUi, 'locale' | 'choose' | 'ask' | 'status'>, port: Pick<HarnessPort, 'queue' | 'updateQueue'>,
+  id: ConversationId, signal: AbortSignal): Promise<void> {
   const t = ui.locale.text.bind(ui.locale)
   while (!signal.aborted) {
     const messages = await port.queue(id, signal)
@@ -79,7 +80,7 @@ export async function manageQueue(ui: TerminalUi, port: HarnessPort, id: Session
  * @param id - selected conversation.
  * @param signal - cancellation.
  * @returns an absolute path (`~/` expands to the home directory), or undefined after dismissal. */
-export async function askExportPath(ui: Pick<TerminalUi, 'ask' | 'locale'>, id: SessionId, signal: AbortSignal): Promise<string | undefined> {
+export async function askExportPath(ui: Pick<TerminalUi, 'ask' | 'locale'>, id: ConversationId, signal: AbortSignal): Promise<string | undefined> {
   const t = ui.locale.text.bind(ui.locale)
   const destination = (await ui.ask(t('Export destination (.zip); existing files are not overwritten'), signal,
     resolve(`dsh-${id.replace(/[^a-zA-Z0-9_-]/gu, '_')}.zip`)))?.trim()

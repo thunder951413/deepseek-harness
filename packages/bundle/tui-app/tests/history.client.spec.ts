@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { sessionsIn } from '../src/history.ts'
-import { SessionId, type SessionSummary } from '../src/port.ts'
+import { ConversationId, type SessionSummary } from '../src/port.ts'
 
 const row = (id: string, cwd?: string): SessionSummary => ({
-  id: SessionId(id), updatedAt: 0, running: false, blank: false, ...cwd === undefined ? {} : { cwd },
+  id: ConversationId(id), updatedAt: 0, running: false, blank: false, ...cwd === undefined ? {} : { cwd },
 })
 
 it('keeps conversations from the same physical directory and drops the rest', async ({ onTestFinished }) => {

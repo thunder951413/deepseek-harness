@@ -9,7 +9,7 @@ import { TerminalUi } from './ui.ts'
 import { TerminalControls } from './controls.ts'
 import { terminalCommands } from './completion.ts'
 import {
-  SessionId, type HarnessPort, type HostCommand, type PortAnswer, type PortQuestionRequest, type SkillSummary,
+  ConversationId, type HarnessPort, type HostCommand, type PortAnswer, type PortQuestionRequest, type SkillSummary,
 } from './port.ts'
 import { WebRemotePort } from './web-remote.ts'
 import { createRequire } from 'node:module'
@@ -126,7 +126,7 @@ export function apply(ctx: Context, config: Config): void {
   let server: TerminalServer | undefined
   let ui: TerminalUi | undefined
   let controls: TerminalControls | undefined
-  let selected: SessionId | undefined
+  let selected: ConversationId | undefined
   let directory = process.cwd()
   let follower: AbortController | undefined
   let following: Promise<void> | undefined
@@ -139,7 +139,7 @@ export function apply(ctx: Context, config: Config): void {
   let viewed = false
   /** Work mode chosen with /mode in this terminal; later conversations start in it. */
   let preferredMode: string | undefined
-  const prompted = new Set<SessionId>()
+  const prompted = new Set<ConversationId>()
   let skills: readonly SkillSummary[] = []
   let hostCommands: readonly HostCommand[] = []
   // `/` offers the Harness's commands and then its skills beside the terminal's own commands.
@@ -172,7 +172,7 @@ export function apply(ctx: Context, config: Config): void {
   const title = (): void => {
     if (selected !== undefined) ui?.session(selected, directory)
   }
-  const select = async (id: SessionId): Promise<void> => {
+  const select = async (id: ConversationId): Promise<void> => {
     follower?.abort()
     await following
     if (lifetime.signal.aborted) return
@@ -243,7 +243,7 @@ export function apply(ctx: Context, config: Config): void {
     const workspacePath = await canonical(process.cwd())
     const reusable = (await backend().listSessions(lifetime.signal))
       .find(item => item.blank && !item.running && item.id !== selected && item.cwd === workspacePath)
-    let id: SessionId
+    let id: ConversationId
     try {
       id = await backend().createSession(process.cwd(), reusable?.id, preferredMode)
     } catch (error) {
@@ -312,7 +312,7 @@ export function apply(ctx: Context, config: Config): void {
     if (preset === undefined || preset.id === current) return
     await runHostCommand(`/permission ${preset.id}`)
   }
-  const archivedSessions = async (): Promise<ReadonlySet<SessionId>> => {
+  const archivedSessions = async (): Promise<ReadonlySet<ConversationId>> => {
     try {
       return await backend().archivedSessions(lifetime.signal)
     } catch (_error) {
@@ -407,12 +407,12 @@ export function apply(ctx: Context, config: Config): void {
       }
       else if (command === '/resume') {
         if (argument === undefined) await pick()
-        else await select(SessionId(argument))
+        else await select(ConversationId(argument))
       } else if (command === '/tools') await inspectTools()
       else if (command === '/skills') await chooseSkill()
       else if (command === '/mode') await chooseMode()
       else if (command === '/help') await ui?.view(t('Commands'),
-        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}${hostCommands.length === 0 ? '' : `\n\n${t('Harness commands')}\n\n${hostCommands.map(item => `/${item.name}${item.description === '' ? '' : ` — ${item.description}`}`).join('\n')}`}${skills.length === 0 ? '' : `\n\n${t('Skills')}\n\n${skills.map(skill => `/${skill.name}${skill.description === '' ? '' : ` — ${skill.description}`}`).join('\n')}`}`, lifetime.signal)
+        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description)}`).join('\n')}${hostCommands.length === 0 ? '' : `\n\n${t('Harness commands')}\n\n${hostCommands.map(item => `/${item.name}${item.description === '' ? '' : ` — ${item.description}`}`).join('\n')}`}${skills.length === 0 ? '' : `\n\n${t('Skills')}\n\n${skills.map(skill => `/${skill.name}${skill.description === '' ? '' : ` — ${skill.description}`}`).join('\n')}`}`, lifetime.signal)
       else exit(0)
       return
     }
@@ -597,7 +597,7 @@ export function apply(ctx: Context, config: Config): void {
           if (latest?.title !== undefined) ui?.banner({ last: { title: latest.title, updatedAt: latest.updatedAt } })
         })
         serialize(async () => {
-          if (config.session !== undefined) await select(SessionId(config.session))
+          if (config.session !== undefined) await select(ConversationId(config.session))
           else await create()
         })
       } catch (error) {

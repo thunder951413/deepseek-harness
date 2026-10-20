@@ -155,3 +155,14 @@ it('reads Host commands, command outcomes, permission presets, and the current p
   expect(() => readPermissionPresets({})).toThrow('Invalid permission preset')
   expect(readReadings({ kind: 'sequenced', values: { permissions: { currentValue: 'auto' } } })).toEqual({ kind: 'values', readings: { permission: 'auto' } })
 })
+
+it('marks a snapshot that leaves older history behind, and reads a pending text block without text as empty', () => {
+  expect(readFollowFrame({ type: 'snapshot', hasMore: true })).toEqual({ kind: 'snapshot', events: [], hasMore: true })
+  expect(readQueue({ values: { inbox: { 'next-turn': [{ id: 'm', source: { kind: 'user' }, content: [{ type: 'text' }] }] } } }))
+    .toEqual([{ id: 'm', target: 'next-turn', text: '' }])
+})
+
+it('reads search matches with a missing snippet as empty and rejects a response without items', () => {
+  expect(readSearch({ items: [{ sessionId: 'a' }, { snippet: 'orphan' }], hasMore: true })).toEqual({ items: [{ id: 'a', snippet: '' }], hasMore: true })
+  expect(() => readSearch({})).toThrow('Invalid conversation search response')
+})

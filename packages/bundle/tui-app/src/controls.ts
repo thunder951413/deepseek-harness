@@ -1,12 +1,12 @@
 /** Model selection and live account/session readings owned by one terminal lifetime. */
 import { TerminalLocale } from './locale.ts'
-import { Unsupported, type HarnessPort, type ModeChoice, type ModelCatalogView, type ModelChoice, type Readings, type SessionId } from './port.ts'
+import { Unsupported, type HarnessPort, type ModeChoice, type ModelCatalogView, type ModelChoice, type Readings, type ConversationId } from './port.ts'
 import { sessionReadings, type BalanceReading } from './readings.ts'
 import type { TerminalUi } from './ui.ts'
 
 /** Services, input, and projections are shared with the Web application. */
 export class TerminalControls {
-  private selected: SessionId | undefined
+  private selected: ConversationId | undefined
   private values: Readings = {}
   private catalog: ModelCatalogView | undefined
   private modes: readonly ModeChoice[] = []
@@ -80,7 +80,7 @@ export class TerminalControls {
    * @param sessionId - selected conversation.
    * @returns after loading its whole-log projections.
    */
-  async select(sessionId: SessionId): Promise<void> {
+  async select(sessionId: ConversationId): Promise<void> {
     this.selected = sessionId
     this.values = {}
     this.projectionError = undefined
@@ -96,7 +96,7 @@ export class TerminalControls {
    * @param effort - effort identifier; empty keeps the model's own default.
    * @returns after the selection is saved, or immediately when nothing applies.
    */
-  async useDefaultEffort(sessionId: SessionId, effort: string): Promise<void> {
+  async useDefaultEffort(sessionId: ConversationId, effort: string): Promise<void> {
     if (effort === '' || sessionId !== this.selected) return
     if (this.catalog === undefined) await this.loadModels()
     const selection = this.current()

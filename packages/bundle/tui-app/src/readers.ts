@@ -9,7 +9,7 @@ import type {
   ReadingsResult, SessionSummary, SkillSummary, ModeChoice, HostCommand, CommandOutcome, PermissionChoice, StreamFrame, Wallet,
   PendingMessage,
 } from './port.ts'
-import { SessionId, PendingMessageId } from './port.ts'
+import { ConversationId, PendingMessageId } from './port.ts'
 
 type Dict = { readonly [key: string]: unknown }
 
@@ -48,7 +48,7 @@ export function readSessionList(value: unknown): SessionSummary[] {
     if (id === undefined || row.origin === 'subagent') continue
     const title = str(dict(dict(row.projections).values).title)
     const cwd = str(row.cwd)
-    rows.push({ id: SessionId(id), updatedAt: num(row.updatedAt) ?? 0, running: row.running === true, blank: row.blank === true,
+    rows.push({ id: ConversationId(id), updatedAt: num(row.updatedAt) ?? 0, running: row.running === true, blank: row.blank === true,
       ...title === undefined ? {} : { title }, ...cwd === undefined ? {} : { cwd } })
   }
   return rows.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -59,9 +59,9 @@ export function readSessionList(value: unknown): SessionSummary[] {
  * @param value - `session/create` result.
  * @returns the identity, or undefined when the result carries none.
  */
-export function readCreated(value: unknown): SessionId | undefined {
+export function readCreated(value: unknown): ConversationId | undefined {
   const id = str(dict(value).sessionId)
-  return id === undefined ? undefined : SessionId(id)
+  return id === undefined ? undefined : ConversationId(id)
 }
 
 /**
@@ -163,10 +163,10 @@ export function readPermissionPresets(value: unknown): PermissionChoice[] {
 /** Read the archived conversations from a Workspace follow frame.
  * @param value - `workspace/follow` frame.
  * @returns the archived identities from a baseline frame, or undefined for any other frame. */
-export function readArchivedSessions(value: unknown): Set<SessionId> | undefined {
+export function readArchivedSessions(value: unknown): Set<ConversationId> | undefined {
   const frame = dict(value)
   if (frame.type !== 'baseline') return undefined
-  return new Set(list(dict(frame.value).archivedSessionIds).flatMap(id => typeof id === 'string' ? [SessionId(id)] : []))
+  return new Set(list(dict(frame.value).archivedSessionIds).flatMap(id => typeof id === 'string' ? [ConversationId(id)] : []))
 }
 
 /** Read the work-mode roster, ignoring entries without an identifier.
@@ -201,13 +201,13 @@ export function readSkills(value: unknown): SkillSummary[] {
 /** Read content-search matches without trusting backend display text.
  * @param value - session/search response.
  * @returns identities, snippets, and truncation indicator. */
-export function readSearch(value: unknown): { items: { id: SessionId; snippet: string }[]; hasMore: boolean } {
+export function readSearch(value: unknown): { items: { id: ConversationId; snippet: string }[]; hasMore: boolean } {
   const result = dict(value)
   if (!Array.isArray(result.items)) throw new Error('Invalid conversation search response')
   return { items: result.items.flatMap((item) => {
     const row = dict(item)
     const id = str(row.sessionId)
-    return id === undefined ? [] : [{ id: SessionId(id), snippet: str(row.snippet) ?? '' }]
+    return id === undefined ? [] : [{ id: ConversationId(id), snippet: str(row.snippet) ?? '' }]
   }), hasMore: result.hasMore === true }
 }
 
@@ -269,7 +269,7 @@ export function readControlFrame(value: unknown): ReadingsChange | undefined {
   if (frame.type === 'baseline') return {}
   const id = str(frame.sessionId)
   const key = str(frame.key)
-  return frame.type === 'projection' && id !== undefined && key !== undefined ? { sessionId: SessionId(id), key } : undefined
+  return frame.type === 'projection' && id !== undefined && key !== undefined ? { sessionId: ConversationId(id), key } : undefined
 }
 
 function readModel(value: unknown): CatalogModel | undefined {

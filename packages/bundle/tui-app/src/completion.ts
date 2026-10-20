@@ -7,7 +7,7 @@ import { convertPathToPattern, globby, isIgnoredByIgnoreFiles } from 'globby'
 import { CombinedAutocompleteProvider, fuzzyFilter, type AutocompleteProvider, type SlashCommand } from '@earendil-works/pi-tui'
 
 /** Human commands handled locally without sending their text to a model. */
-export const terminalCommands: SlashCommand[] = [
+export const terminalCommands: readonly { readonly name: string; readonly description: string }[] = [
   { name: 'new', description: 'Start a conversation in this directory' },
   { name: 'clear', description: 'Start a fresh conversation (same as /new)' },
   { name: 'resume', description: 'Find and resume a conversation' },
@@ -53,7 +53,7 @@ export class ProjectCompletion implements AutocompleteProvider {
 
   /** Terminal commands first, then added commands whose names they do not already take. */
   private commands(): SlashCommand[] {
-    const local = terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description ?? '') }))
+    const local = terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description) }))
     const taken = new Set(local.map(command => command.name))
     return [...local, ...this.extra.filter(command => !taken.has(command.name))]
   }

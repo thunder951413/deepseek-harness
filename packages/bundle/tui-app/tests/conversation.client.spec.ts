@@ -1,7 +1,7 @@
 /** Conversation following projects port frames and stops at cancellation. */
 import { expect, it } from 'vitest'
 import { observe } from '../src/conversation.ts'
-import { SessionId, type FollowFrame, type HarnessPort } from '../src/port.ts'
+import { ConversationId, type FollowFrame, type HarnessPort } from '../src/port.ts'
 
 function port(frames: FollowFrame[]): Pick<HarnessPort, 'follow'> {
   return { follow: async function* () { yield* frames } }
@@ -14,7 +14,7 @@ it('opens from a snapshot, streams unfinished text, and flags turn completion', 
       active: [{ type: 'text-chunks', texts: ['part'] }] },
     { kind: 'stream', frame: { type: 'chunk', chunk: { type: 'text-delta', text: 'ial' } } },
     { kind: 'event', event: { type: 'turn/end', seq: 2, data: { reason: { kind: 'completed' } } } },
-  ]), SessionId('s'), 10, 1000, '/fallback', new AbortController().signal)) updates.push(update)
+  ]), ConversationId('s'), 10, 1000, '/fallback', new AbortController().signal)) updates.push(update)
   expect(updates.map(update => update.directory)).toEqual(['/fallback', undefined, undefined])
   expect(updates[0]?.view.entries[0]?.text).toBe('hi')
   expect(updates[1]?.view.live).toBe('partial')
@@ -27,7 +27,7 @@ it('uses the snapshot directory and stops once aborted', async () => {
   const seen: string[] = []
   for await (const update of observe(port([
     { kind: 'snapshot', cwd: '/project', events: [] }, { kind: 'snapshot', events: [] },
-  ]), SessionId('s'), 10, 1000, '/fallback', abort.signal)) {
+  ]), ConversationId('s'), 10, 1000, '/fallback', abort.signal)) {
     seen.push(update.directory ?? '')
     abort.abort()
   }
@@ -39,7 +39,7 @@ it('replaces the baseline on recovery and exposes omitted older history', async 
     { type: 'user/message', seq: 1, data: { source: { kind: 'user' }, content: 'one' } },
   ] }
   const updates = []
-  for await (const update of observe(port([snapshot, snapshot]), SessionId('s'), 1, 1000, '/project', new AbortController().signal)) updates.push(update)
+  for await (const update of observe(port([snapshot, snapshot]), ConversationId('s'), 1, 1000, '/project', new AbortController().signal)) updates.push(update)
   expect(updates[1]?.view.entries).toHaveLength(1)
   expect(updates[1]?.view.truncated).toBe(true)
 })

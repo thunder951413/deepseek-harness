@@ -4,6 +4,7 @@ import { visibleWidth } from '@earendil-works/pi-tui'
 import { expect, it } from 'vitest'
 import { color } from '../src/theme.ts'
 import { DETAIL_ROWS, renderActivity } from '../src/activity.ts'
+import { TerminalLocale } from '../src/locale.ts'
 import type { ToolCall } from '../src/transcript.ts'
 
 const plain = (rows: string[]): string[] => rows.map(row => stripVTControlCharacters(row))
@@ -34,4 +35,11 @@ it('colors added and removed lines', () => {
   const rows = renderActivity({ calls: 1, failed: 0, latest: call('done', ['/a', '- old', '+ new']) }, 1, 40)
   expect(rows[3]).toBe(`    ${color.red('- old')}`)
   expect(rows[4]).toBe(`    ${color.green('+ new')}`)
+})
+
+it('counts tool calls and failures in the terminal language', () => {
+  const zh = new TerminalLocale('zh')
+  expect(plain(renderActivity({ calls: 0, failed: 0 }, 2, 80, zh))[0]).toBe('✻ 工作中… 2s · Ctrl-C 停止')
+  expect(plain(renderActivity({ calls: 3, failed: 0, latest: call('done', []) }, 2, 80, zh))[0]).toBe('✻ 工作中… 2s · 3 次工具调用 · Ctrl-C 停止')
+  expect(plain(renderActivity({ calls: 3, failed: 1, latest: call('failed', []) }, 2, 80, zh))[0]).toBe('✻ 工作中… 2s · 3 次工具调用 · 1 次失败 · Ctrl-C 停止')
 })

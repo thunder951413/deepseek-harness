@@ -26,7 +26,7 @@ import type { SessionId as WireSessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-user-approval/types'
 import type {} from '@deepseek-ai/dsh-user-questions/types'
 import {
-  SessionId, Unsupported, type PendingMessageId, type Capabilities, type HarnessPort, type ModelChoice, type PortApprovalOutcome,
+  ConversationId, Unsupported, type PendingMessageId, type Capabilities, type HarnessPort, type ModelChoice, type PortApprovalOutcome,
   type PortAnswer, type PortQuestion, type PortQuestionRequest, type PortApproval,
 } from './port.ts'
 import {
@@ -40,7 +40,7 @@ import { approvalCallText } from './wire-transcript.ts'
 const MISSING = new Set<string>(['gateway/invocation-unavailable', 'gateway/definition-unavailable',
   'gateway/service-unavailable', 'gateway/method-unavailable'])
 
-function wire(id: SessionId): WireSessionId { return id as string as WireSessionId }
+function wire(id: ConversationId): WireSessionId { return id as string as WireSessionId }
 
 function text(value: unknown): string | undefined { return typeof value === 'string' && value !== '' ? value : undefined }
 
@@ -196,7 +196,7 @@ export class WebRemotePort implements HarnessPort {
     return readSessionList(this.required('session/list', await this.remote().session.list({}, signal)))
   }
 
-  async createSession(directory: string, reuse?: SessionId, mode?: string): Promise<SessionId> {
+  async createSession(directory: string, reuse?: ConversationId, mode?: string): Promise<ConversationId> {
     const workspace = this.required('workspace/create', await this.remote().workspace.create({ path: directory }))
     const workspaceId = readWorkspaceId(workspace)
     if (workspaceId === undefined) throw new Error('workspace/create: the Harness returned no Workspace identity')
@@ -207,7 +207,7 @@ export class WebRemotePort implements HarnessPort {
     return created
   }
 
-  async *follow(sessionId: SessionId, historyMessages: number, signal: AbortSignal) {
+  async *follow(sessionId: ConversationId, historyMessages: number, signal: AbortSignal) {
     for await (const raw of this.remote().session.follow({
       address: { kind: 'session', sessionId: wire(sessionId) }, maxMessages: historyMessages, assistantStream: true,
     }, signal)) {
@@ -216,7 +216,7 @@ export class WebRemotePort implements HarnessPort {
     }
   }
 
-  async prompt(sessionId: SessionId, text: string, signal: AbortSignal, mode: 'queue' | 'steer' = 'queue'): Promise<void> {
+  async prompt(sessionId: ConversationId, text: string, signal: AbortSignal, mode: 'queue' | 'steer' = 'queue'): Promise<void> {
     this.required('session/prompt', await this.remote().session.prompt({
       requestId: brandString<SessionRequestId>(randomUUID()), sessionId: wire(sessionId), mode,
       content: [{ type: 'text', text }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -227,15 +227,15 @@ export class WebRemotePort implements HarnessPort {
     return readSearch(this.optional('search', 'session/search', await this.remote().session.search({ query }, signal)))
   }
 
-  async skills(sessionId: SessionId, signal: AbortSignal) {
+  async skills(sessionId: ConversationId, signal: AbortSignal) {
     return readSkills(this.optional('skills', 'skills/list', await this.remote().skills.list({ sessionId: wire(sessionId) }, signal)))
   }
 
-  async hostCommands(sessionId: SessionId) {
+  async hostCommands(sessionId: ConversationId) {
     return readHostCommands(this.optional('commands', 'commands/list', await this.remote().commands.list(wire(sessionId))))
   }
 
-  async runCommand(sessionId: SessionId, line: string) {
+  async runCommand(sessionId: ConversationId, line: string) {
     return readCommandOutcome(this.required('commands/execute', await this.remote().commands.execute(wire(sessionId), line, [])))
   }
 
@@ -243,7 +243,7 @@ export class WebRemotePort implements HarnessPort {
     return readPermissionPresets(this.optional('permissions', 'permissionPresets/catalog', await this.remote().permissionPresets.catalog()))
   }
 
-  async archivedSessions(signal: AbortSignal): Promise<ReadonlySet<SessionId>> {
+  async archivedSessions(signal: AbortSignal): Promise<ReadonlySet<ConversationId>> {
     // Only the opening baseline is needed; leaving the loop closes the stream.
     for await (const raw of this.remote().workspace.follow(signal)) {
       const archived = readArchivedSessions(raw)
@@ -256,34 +256,34 @@ export class WebRemotePort implements HarnessPort {
     return readModes(this.optional('modes', 'agentPresets/list', await this.remote().agentPresets.list()))
   }
 
-  async selectMode(sessionId: SessionId, mode: string): Promise<void> {
+  async selectMode(sessionId: ConversationId, mode: string): Promise<void> {
     this.required('agentPresets/select', await this.remote().agentPresets.select(wire(sessionId), mode))
   }
 
-  async rename(sessionId: SessionId, title: string): Promise<void> {
+  async rename(sessionId: ConversationId, title: string): Promise<void> {
     this.optional('management', 'session/rename', await this.remote().session.rename({ sessionId: wire(sessionId), title }))
   }
 
-  async fork(sessionId: SessionId): Promise<SessionId> {
+  async fork(sessionId: ConversationId): Promise<ConversationId> {
     const id = readCreated(this.optional('management', 'session/fork', await this.remote().session.fork({ sessionId: wire(sessionId) })))
     if (id === undefined) throw new Error('The fork response has no conversation identity')
     return id
   }
 
-  async queue(sessionId: SessionId, signal: AbortSignal) {
+  async queue(sessionId: ConversationId, signal: AbortSignal) {
     const items = readQueue(this.optional('queue', 'session/projections', await this.remote().session.projections({ sessionId: wire(sessionId) }, signal)))
     if (items === undefined) { this.features.queue = false; throw new Unsupported('pending messages') }
     return items
   }
 
-  async updateQueue(sessionId: SessionId, id: PendingMessageId, action: { kind: 'remove' | 'steer' } | { kind: 'edit'; text: string }): Promise<void> {
+  async updateQueue(sessionId: ConversationId, id: PendingMessageId, action: { kind: 'remove' | 'steer' } | { kind: 'edit'; text: string }): Promise<void> {
     this.optional('queue', 'session/updateQueue', await this.remote().session.updateQueue({
       sessionId: wire(sessionId), itemId: brandString<MessageId>(id),
       action: action.kind === 'edit' ? { kind: 'edit', content: [{ type: 'text', text: action.text }] } : action,
     }))
   }
 
-  async *exportLog(sessionId: SessionId, signal: AbortSignal): AsyncGenerator<Uint8Array> {
+  async *exportLog(sessionId: ConversationId, signal: AbortSignal): AsyncGenerator<Uint8Array> {
     const url = new URL('api/session.export', this.url)
     url.search = ''
     url.searchParams.set('sessionId', sessionId)
@@ -303,11 +303,11 @@ export class WebRemotePort implements HarnessPort {
 
   reconnect(): void { this.connection?.reconnect() }
 
-  async cancel(sessionId: SessionId): Promise<void> {
+  async cancel(sessionId: ConversationId): Promise<void> {
     this.required('session/cancel', await this.remote().session.cancel({ sessionId: wire(sessionId) }))
   }
 
-  async readToolCall(sessionId: SessionId, callId: string, signal: AbortSignal): Promise<string | undefined> {
+  async readToolCall(sessionId: ConversationId, callId: string, signal: AbortSignal): Promise<string | undefined> {
     for (const maxMessages of [1, 50]) {
       for await (const raw of this.remote().session.follow({ address: { kind: 'session', sessionId: wire(sessionId) }, maxMessages }, signal)) {
         const frame = readFollowFrame(raw)
@@ -320,7 +320,7 @@ export class WebRemotePort implements HarnessPort {
     return undefined
   }
 
-  async readings(sessionId: SessionId, signal: AbortSignal) {
+  async readings(sessionId: ConversationId, signal: AbortSignal) {
     return readReadings(this.optional('readings', 'session/projections',
       await this.remote().session.projections({ sessionId: wire(sessionId) }, signal)))
   }
@@ -336,7 +336,7 @@ export class WebRemotePort implements HarnessPort {
     return readCatalog(this.optional('models', 'session/modelCatalog', await this.remote().session.modelCatalog()))
   }
 
-  async selectModel(sessionId: SessionId, choice: ModelChoice): Promise<void> {
+  async selectModel(sessionId: ConversationId, choice: ModelChoice): Promise<void> {
     this.optional('models', 'session/selectModel', await this.remote().session.selectModel({ sessionId: wire(sessionId), ...choice }))
   }
 
@@ -353,7 +353,7 @@ export class WebRemotePort implements HarnessPort {
       const toolName = text(request.toolName)
       const scoped = this.scopes.get(request.agent)
       if (toolName === undefined || scoped === undefined) return next()
-      const sessionId = SessionId(scoped)
+      const sessionId = ConversationId(scoped)
       const callId = text(request.callId)
       const reason = text(request.reason)
       const outcome = await listener({ sessionId, toolName, ...callId === undefined ? {} : { callId },
@@ -367,7 +367,7 @@ export class WebRemotePort implements HarnessPort {
       const scoped = request.agent === undefined ? undefined : this.scopes.get(request.agent)
       const questions = questionItems(request.questions)
       if (scoped === undefined || questions.length === 0) return next()
-      const sessionId = SessionId(scoped)
+      const sessionId = ConversationId(scoped)
       const callId = text(request.wait?.callId)
       const outcome = await listener({ sessionId, questions,
         ...request.signal === undefined ? {} : { signal: request.signal },
@@ -376,7 +376,7 @@ export class WebRemotePort implements HarnessPort {
     })
   }
 
-  holdQuestion(sessionId: SessionId, callId: string, signal: AbortSignal): AsyncIterable<unknown> {
+  holdQuestion(sessionId: ConversationId, callId: string, signal: AbortSignal): AsyncIterable<unknown> {
     return this.remote().userQuestions.attachWait(wire(sessionId), callId as ToolCallId, signal)
   }
 

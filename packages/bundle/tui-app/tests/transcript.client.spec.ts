@@ -181,3 +181,28 @@ it('marks clipped tool output and records the sanitized argument split', () => {
   expect(call).toMatchObject({ argumentLength: 16, truncated: true })
   expect(call?.details.slice(0, call.argumentLength)).toBe('{"command":"ls"}')
 })
+
+it('tracks the work phase, keeps the latest call when an earlier one finishes, and marks streamed text it clips', () => {
+  const transcript = new TerminalTranscript(200)
+  transcript.accept(event('turn/start', { turn: 1 }, 1))
+  transcript.stream({ type: 'chunk', chunk: { type: 'text-delta', text: 'abcdef' } })
+  expect(transcript.view().activity.phase).toBe('Receiving response')
+  transcript.accept(event('step/start', {}, 2))
+  expect(transcript.view().activity.phase).toBe('Waiting for model')
+  transcript.accept(event('tool/call', { name: 'bash', callId: 'a', arguments: '{}' }, 3))
+  transcript.accept(event('tool/call', { name: 'bash', callId: 'b', arguments: '{}' }, 4))
+  transcript.accept(event('tool/result', { message: { toolCallId: 'a', content: [{ type: 'text', text: 'ok' }] } }, 5))
+  expect(transcript.view().activity.latest?.id).toBe('b')
+  expect(transcript.view().clipped).toBeUndefined()
+  transcript.stream({ type: 'chunk', chunk: { type: 'text-delta', text: 'x'.repeat(250) } })
+  expect(transcript.view().clipped).toBe(true)
+})
+
+it('records a result that arrives after its tool block stopped being the open one', () => {
+  const transcript = new TerminalTranscript(1000)
+  transcript.accept(event('turn/start', { turn: 1 }, 1))
+  transcript.accept(event('tool/call', { name: 'bash', callId: 'late', arguments: '{}' }, 2))
+  transcript.accept(event('turn/start', { turn: 2 }, 3))
+  transcript.accept(event('tool/result', { message: { toolCallId: 'late', content: [{ type: 'text', text: 'done' }] } }, 4))
+  expect(transcript.view().entries[0]?.group?.calls[0]?.state).toBe('done')
+})

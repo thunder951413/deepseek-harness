@@ -1,5 +1,5 @@
 /** Conversation following: turns port frames into display updates. */
-import type { HarnessPort, SessionId } from './port.ts'
+import type { HarnessPort, ConversationId } from './port.ts'
 import type { TerminalView } from './transcript.ts'
 import { TerminalTranscript } from './wire-transcript.ts'
 
@@ -22,7 +22,7 @@ export interface ConversationUpdate {
  * @param signal - selection lifetime.
  * @returns display updates until cancellation or the follow stream ends.
  */
-export async function* observe(port: Pick<HarnessPort, 'follow'>, sessionId: SessionId, historyMessages: number, maxCharacters: number,
+export async function* observe(port: Pick<HarnessPort, 'follow'>, sessionId: ConversationId, historyMessages: number, maxCharacters: number,
   fallbackDirectory: string, signal: AbortSignal): AsyncGenerator<ConversationUpdate> {
   const transcript = new TerminalTranscript(maxCharacters)
   let hasMore = false
