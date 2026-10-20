@@ -1,5 +1,7 @@
 /** Project-local path discovery and slash-command completion. */
-import { globby } from 'globby'
+import { readdir, type Dirent } from 'node:fs'
+import { basename, resolve } from 'node:path'
+import { convertPathToPattern, globby, isIgnoredByIgnoreFiles } from 'globby'
 import { CombinedAutocompleteProvider, fuzzyFilter, type AutocompleteProvider, type SlashCommand } from '@earendil-works/pi-tui'
 
 /** Human commands handled locally without sending their text to a model. */
@@ -30,7 +32,7 @@ export class ProjectCompletion implements AutocompleteProvider {
    * @param directory - directory of the selected Session.
    * @param depth - maximum project traversal depth.
    * @param limit - maximum indexed file paths.
-   * @param report - visible failure reporter; failed discovery is retryable.
+   * @param report - visible failure or partial-index reporter; failed discovery is retryable.
    */
   constructor(private directory: string, private readonly depth: number, private readonly limit: number,
     private readonly report: (message: string) => void) {
@@ -49,7 +51,8 @@ export class ProjectCompletion implements AutocompleteProvider {
   refresh(): void { this.files = undefined; this.generation++ }
 
   /**
-   * Complete local commands or insert a quoted project path after `@`.
+   * Complete local commands or insert a quoted project path after `@`; hidden directories are not scanned.
+   * Unreadable child directories are skipped with a partial-results notice; other discovery failures report no suggestions.
    * @param args - editor lines, logical cursor position, and cancellation or explicit-completion state.
    * @returns suggestions, or null after cancellation or a reported discovery failure.
    */
@@ -64,6 +67,34 @@ export class ProjectCompletion implements AutocompleteProvider {
     return this.lifetime.signal.aborted || signal.aborted || generation !== this.generation
   }
 
+  private async discover(signal: AbortSignal, generation: number): Promise<string[]> {
+    const directory = resolve(this.directory)
+    const skipped = new Set<string>()
+    const finish = <T>(path: string, error: NodeJS.ErrnoException | null, files: T[],
+      callback: (error: NodeJS.ErrnoException | null, files: T[]) => void): void => {
+      if (error !== null && (error.code === 'EPERM' || error.code === 'EACCES') && resolve(path) !== directory) {
+        skipped.add(path)
+        callback(null, [])
+      } else callback(error, files)
+    }
+    type ReadCallback<T> = (error: NodeJS.ErrnoException | null, files: T[]) => void
+    function readDirectory(...args: [string, ReadCallback<string>] | [string, { withFileTypes: true }, ReadCallback<Dirent>]): void {
+      if (args.length === 2) readdir(args[0], (error, files) => { finish(args[0], error, files, args[1]) })
+      else readdir(args[0], args[1], (error, files) => { finish(args[0], error, files, args[2]) })
+    }
+    // Discover rule files in the same permission-aware walk; globby's gitignore walk does not use its fs adapter.
+    const paths = await globby('**/*', { cwd: directory, dot: true, fs: { readdir: readDirectory },
+      onlyFiles: true, followSymbolicLinks: false, deep: this.depth,
+      ignore: ['**/node_modules/**', '**/.!(gitignore)/**'] })
+    const rules = paths.filter(path => basename(path) === '.gitignore')
+    const ignored = await isIgnoredByIgnoreFiles(rules.map(convertPathToPattern), { cwd: directory })
+    const files = paths.filter(path => basename(path) !== '.gitignore' && !ignored(path)).sort().slice(0, this.limit)
+    if (skipped.size > 0 && !this.cancelled(signal, generation)) {
+      this.report(`File completion is partial: skipped ${skipped.size} unreadable ${skipped.size === 1 ? 'directory' : 'directories'}. Enter a file path manually if needed.`)
+    }
+    return files
+  }
+
   private async suggestions(...[lines, cursorLine, cursorCol, options]: Parameters<AutocompleteProvider['getSuggestions']>) {
     const generation = this.generation
     if (this.cancelled(options.signal, generation)) return null
@@ -74,9 +105,7 @@ export class ProjectCompletion implements AutocompleteProvider {
         const suggestions = await this.provider.getSuggestions(lines, cursorLine, cursorCol, options)
         return this.cancelled(options.signal, generation) ? null : suggestions
       }
-      const files = await (this.files ??= globby('**/*', { cwd: this.directory, gitignore: true, dot: false,
-        onlyFiles: true, followSymbolicLinks: false, deep: this.depth, ignore: ['**/node_modules/**', '**/.git/**'] })
-        .then(paths => paths.sort().slice(0, this.limit)))
+      const files = await (this.files ??= this.discover(options.signal, generation))
       if (this.cancelled(options.signal, generation)) return null
       const query = prefix.replace(/^@"?/u, '')
       const items = fuzzyFilter(files, query, path => path).map(path => ({

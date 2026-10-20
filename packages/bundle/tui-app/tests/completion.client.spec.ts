@@ -1,5 +1,5 @@
 /** Project completion uses owned directories and waits for discovery during disposal. */
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -28,6 +28,62 @@ it('finds nested project files, respects ignored paths, and quotes spaces', asyn
   expect((await completion.getSuggestions(['@'], 0, 1, options))?.items.map(item => item.label)).toEqual(['docs/中文 note.md'])
   expect(report).not.toHaveBeenCalled()
 })
+
+// POSIX directory permissions are not enforced on Windows or for root.
+it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'completes visible files without scanning unreadable hidden directories for gitignore files', async ({ onTestFinished }) => {
+    const root = await mkdtemp(join(tmpdir(), 'tui-hidden-'))
+    onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+    const trash = join(root, '.Trash')
+    await mkdir(trash)
+    onTestFinished(async () => { await chmod(trash, 0o700) })
+    await writeFile(join(trash, '.gitignore'), '*\n')
+    await mkdir(join(root, 'docs'))
+    await writeFile(join(root, '.gitignore'), 'root-ignored.txt\n')
+    await writeFile(join(root, 'root-ignored.txt'), '')
+    await writeFile(join(root, 'docs', '.gitignore'), 'nested-ignored.txt\n')
+    await writeFile(join(root, 'docs', 'nested-ignored.txt'), '')
+    await writeFile(join(root, 'docs', 'visible.txt'), '')
+    await chmod(trash, 0)
+    const report = vi.fn()
+    const completion = new ProjectCompletion(root, 8, 100, report)
+    onTestFinished(async () => { await completion.dispose() })
+    const result = await completion.getSuggestions(['@'], 0, 1, { signal: new AbortController().signal })
+    expect(result?.items.map(item => item.label)).toEqual(['docs/visible.txt'])
+    expect(report).not.toHaveBeenCalled()
+  },
+)
+
+// POSIX directory permissions are not enforced on Windows or for root.
+it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'keeps readable suggestions when a visible subtree is inaccessible, but reports an inaccessible root', async ({ onTestFinished }) => {
+    const root = await mkdtemp(join(tmpdir(), 'tui-permissions-'))
+    onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+    const blocked = join(root, 'Library', 'Accounts')
+    await mkdir(blocked, { recursive: true })
+    onTestFinished(async () => { await chmod(blocked, 0o700) })
+    await writeFile(join(root, 'visible.txt'), '')
+    await writeFile(join(root, '.gitignore'), 'ignored.txt\n')
+    onTestFinished(async () => { await chmod(join(root, '.gitignore'), 0o600) })
+    await writeFile(join(root, 'ignored.txt'), '')
+    await chmod(blocked, 0)
+    const report = vi.fn()
+    const completion = new ProjectCompletion(root, 8, 100, report)
+    onTestFinished(async () => { await completion.dispose() })
+    const options = { signal: new AbortController().signal }
+    expect((await completion.getSuggestions(['@'], 0, 1, options))?.items.map(item => item.label)).toEqual(['visible.txt'])
+    expect(report).toHaveBeenCalledWith('File completion is partial: skipped 1 unreadable directory. Enter a file path manually if needed.')
+    await completion.getSuggestions(['@visible'], 0, 8, options)
+    expect(report).toHaveBeenCalledTimes(1)
+    completion.setDirectory(blocked)
+    expect(await completion.getSuggestions(['@'], 0, 1, options)).toBeNull()
+    expect(report).toHaveBeenLastCalledWith(expect.stringContaining('File completion unavailable'))
+    await chmod(join(root, '.gitignore'), 0)
+    completion.setDirectory(root)
+    expect(await completion.getSuggestions(['@'], 0, 1, options)).toBeNull()
+    expect(report).toHaveBeenLastCalledWith(expect.stringContaining('.gitignore'))
+  },
+)
 
 it('completes slash commands and keeps discovery bounded to the selected directory', async ({ onTestFinished }) => {
   const root = await mkdtemp(join(tmpdir(), 'tui-commands-'))

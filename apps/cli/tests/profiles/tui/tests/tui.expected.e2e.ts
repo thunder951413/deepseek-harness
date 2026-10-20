@@ -1,5 +1,5 @@
 /** Real terminal and Web-host lifecycle through the shipped profile. */
-import { mkdtemp, mkdir, rm, writeFile, readFile, realpath } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, rm, writeFile, readFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -177,10 +177,23 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     await expect.poll(screen, { timeout: 20000 }).toContain('Ctrl-O tools')
     child.write('\r')
     await expect.poll(screen, { timeout: 20000 }).not.toContain('Ctrl-O tools')
-    child.write('read @sample')
-    await expect.poll(screen, { timeout: 20000 }).toContain('sample file.md')
-    child.write('\t\r')
-    await expect.poll(screen, { timeout: 20000 }).toContain('Reply to read @"sample file.md"')
+    const hidden = join(home, '.Trash')
+    await mkdir(hidden)
+    const protectedDirectory = join(home, 'Library', 'Accounts')
+    await mkdir(protectedDirectory, { recursive: true })
+    try {
+      await chmod(hidden, 0)
+      await chmod(protectedDirectory, 0)
+      child.write('read @sample')
+      await expect.poll(screen, { timeout: 20000 }).toContain('sample file.md')
+      expect(screen()).not.toContain('File completion unavailable')
+      if (process.getuid?.() !== 0) expect(screen()).toContain('File completion is partial: skipped 1 unreadable directory.')
+      child.write('\t\r')
+      await expect.poll(screen, { timeout: 20000 }).toContain('Reply to read @"sample file.md"')
+    } finally {
+      await chmod(hidden, 0o700)
+      await chmod(protectedDirectory, 0o700)
+    }
     child.write('markdown\r')
     await expect.poll(screen, { timeout: 20000 }).toContain('const answer = 42')
     expect(screen()).toContain('Terminal heading')
