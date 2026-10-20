@@ -18,10 +18,12 @@ export interface TuiStartup {
   readonly backendProfile: string
   /** Owned backend listener port. */
   readonly port: number
+  /** Owned backend listener address: `lan`, `loopback`, or one local interface address. */
+  readonly host: string
 }
 
 /**
- * Parse terminal arguments before binding its loopback Web server.
+ * Parse terminal arguments before binding its Web server.
  * @param ctx - launcher context.
  */
 export function apply(ctx: Context): void {
@@ -32,8 +34,9 @@ export function apply(ctx: Context): void {
     .option('--connect <url>', 'connect to an existing Harness launch URL')
     .option('--backend-profile <name>', 'profile for an owned Web backend', 'web')
     .option('--port <port>', 'Web listener port (default: an OS-assigned port)', '0')
+    .option('--host <address>', 'Web listener address: lan (a local network interface), loopback, or one local interface address', 'lan')
   program.action(() => {
-    const options = program.opts<{ session?: string; connect?: string; backendProfile: string; port: string }>()
+    const options = program.opts<{ session?: string; connect?: string; backendProfile: string; port: string; host: string }>()
     if (!/^\d+$/.test(options.port) || Number(options.port) > 65535) {
       program.error('error: --port must be an integer from 0 through 65535')
     }

@@ -34,6 +34,6 @@ Reply to after recovery
 › Message · Enter send · Shift+Enter new line
 
 
-Mode: standard · Model: terminal-fixture/fixture · Reasoning: low    Terminal test conversat… · <session>
-Cache: 75% · Output: <speed> tok/s · Balance: Unavailable  <cwd>
-/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit  Web: <origin> · /web for the sign-in link
+Mode: standard · Model: terminal-fixture/fixture · Reasoning: low
+Cache: 75% · Output: <speed> tok/s · Balance: Unavailable              Terminal test conversat… · <session>
+/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit  <cwd>

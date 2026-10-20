@@ -39,6 +39,12 @@ export class TerminalControls {
   private cancelled(): boolean { return this.signal.aborted }
 
   /**
+   * Read the selected conversation's permission selection.
+   * @returns its permission preset, `auto`, or `custom`; undefined when the Harness has no permission presets.
+   */
+  permission(): string | undefined { return this.values.permission }
+
+  /**
    * Resolve the selected conversation's work mode against the loaded roster.
    * @returns the named mode, the default mode when the conversation names none, or undefined without a roster.
    */
@@ -142,7 +148,9 @@ export class TerminalControls {
       for await (const change of this.ctx.watchReadings(this.signal)) {
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key === 'inbox')) void this.refreshQueue()
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key !== undefined
-          && ['title', 'agentPreset', 'modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
+          && ['title', 'agentPreset', 'permissions', 'modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) {
+          await this.refreshProjections()
+        }
       }
     } catch (error) {
       if (!this.signal.aborted) {

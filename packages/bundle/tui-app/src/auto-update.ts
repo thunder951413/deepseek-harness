@@ -1,16 +1,18 @@
-/** Weekly background sync of a source checkout, enabled by running scripts/sync-upstream-tui.sh from that checkout. */
+/** Weekly background update of a source checkout, enabled by running scripts/setup-tui.sh from that checkout. */
 import { spawn, type SpawnOptions } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
-/** The record scripts/sync-upstream-tui.sh writes after each run. */
+/** The record scripts/setup-tui.sh writes after each run. */
 export interface UpdateRecord {
   /** Checkout that holds the sync script. */
   readonly checkout: string
   readonly remote: string
   readonly branch: string
-  /** dsh command the terminal is installed into. */
-  readonly dsh: string
+  /** Name of the dsh command the script writes. */
+  readonly name: string
+  /** Directory holding that command. */
+  readonly binDir: string
   readonly intervalDays: number
   /** Start of the last run, in milliseconds since the epoch. */
   readonly lastCheck: number
@@ -38,15 +40,19 @@ export async function readUpdateRecord(path: string): Promise<UpdateRecord | und
   }
   const value: unknown = JSON.parse(text)
   const record = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
-  const strings = ['checkout', 'remote', 'branch', 'dsh', 'status', 'message', 'log'] as const
-  if (strings.some(key => typeof record[key] !== 'string') || !STATUSES.has(String(record.status))
+  // Records written before the setup and update scripts merged name the command by its path.
+  const legacy = typeof record.dsh === 'string' && record.name === undefined && record.binDir === undefined
+  const command = legacy ? { name: basename(String(record.dsh)), binDir: dirname(String(record.dsh)) }
+    : { name: record.name, binDir: record.binDir }
+  const strings = [record.checkout, record.remote, record.branch, command.name, command.binDir, record.status, record.message, record.log]
+  if (strings.some(value => typeof value !== 'string') || !STATUSES.has(String(record.status))
     || typeof record.intervalDays !== 'number' || !(record.intervalDays > 0) || typeof record.lastCheck !== 'number') {
-    throw new Error(`Invalid automatic update record ${path}; run scripts/sync-upstream-tui.sh again`)
+    throw new Error(`Invalid automatic update record ${path}; run scripts/setup-tui.sh again`)
   }
   return {
-    checkout: String(record.checkout), remote: String(record.remote), branch: String(record.branch), dsh: String(record.dsh),
-    intervalDays: record.intervalDays, lastCheck: record.lastCheck, status: record.status as UpdateRecord['status'],
-    message: String(record.message), log: String(record.log),
+    checkout: String(record.checkout), remote: String(record.remote), branch: String(record.branch), name: String(command.name),
+    binDir: String(command.binDir), intervalDays: record.intervalDays, lastCheck: record.lastCheck,
+    status: record.status as UpdateRecord['status'], message: String(record.message), log: String(record.log),
   }
 }
 
@@ -69,8 +75,9 @@ export function updateDue(record: UpdateRecord, now: number): boolean {
  */
 export function startUpdate(record: UpdateRecord,
   launch: (command: string, args: string[], options: SpawnOptions) => { unref(): void } = spawn): void {
-  const child = launch('bash', [join(record.checkout, 'scripts', 'sync-upstream-tui.sh'), '--if-due', '--wait-for-idle', '--remote', record.remote,
-    '--branch', record.branch, '--dsh', record.dsh, '--interval-days', String(record.intervalDays)], {
+  const child = launch('bash', [join(record.checkout, 'scripts', 'setup-tui.sh'), '--if-due', '--wait-for-idle',
+    '--remote', record.remote, '--branch', record.branch, '--name', record.name, '--bin-dir', record.binDir,
+    '--interval-days', String(record.intervalDays)], {
     cwd: record.checkout, detached: true, stdio: 'ignore',
   })
   child.unref()

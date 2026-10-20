@@ -46,6 +46,7 @@ ${probeEntry}    - id: tui-startup
         connect: !!js ctx.tuiStartup.connect
         backendProfile: !!js ctx.tuiStartup.backendProfile
         port: !!js ctx.tuiStartup.port
+        host: !!js ctx.tuiStartup.host
 `)
 }
 
@@ -87,7 +88,8 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
   let clearedScrollback = false
   const launch = (args: string[] = []) => spawn(executable, [
     ...externalCommand === undefined ? ['--import', pathToFileURL(cleanupProbe).href, ...entry] : [],
-    '--profile', 'tui', '--backend-profile', 'terminal-backend', ...args,
+    // Loopback keeps the scenario independent of this machine's network interfaces.
+    '--profile', 'tui', '--backend-profile', 'terminal-backend', '--host', 'loopback', ...args,
   ], {
     cwd: home, cols: 140, rows: 44, name: 'xterm-256color',
     env: { ...process.env, ...invocation.env, DSH_HOME: home, DSH_PERMISSION_MODE: 'workspace-write',
@@ -126,9 +128,11 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     return value
   }
   // The status area ends its first row with `<title> · <session>`; a Host-assigned title replaces the product name.
+  // Ready once the status names a conversation; joining rows keeps an identity that wrapped across them.
+  const identified = (): boolean => / · session-[0-9a-f]{8}-/u.test(screen().replaceAll('\n', ''))
   const latestSession = (): string | undefined => [...allText().matchAll(/ · (session-[a-z0-9-]+) *$/gmu)].at(-1)?.[1]
   try {
-    await expect.poll(() => screen(), { timeout: 20000 }).toContain('Web: http:')
+    await expect.poll(identified, { timeout: 20000 }).toBe(true)
     await expect.poll(() => screen(), { timeout: 20000 }).not.toContain('choose a conversation')
     await expect.poll(() => screen(), { timeout: 20000 }).toContain('Reasoning: high')
     expect(terminal.buffer.active).toBe(terminal.buffer.normal)
@@ -383,7 +387,7 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     child.write(`/resume ${sessionId}\r`)
     await expect.poll(latestSession, { timeout: 20000 }).toBe(sessionId)
     const rendered = screen().replaceAll(sessionId, '<session>').replaceAll(await realpath(home), '<cwd>').replaceAll(home, '<cwd>')
-      .replace(/Web: http:\/\/\S+ ·/u, 'Web: <origin> ·').replace(/ {2,}(?=DeepSeek Harness|<cwd>|Web: )/gu, '  ')
+      .replace(/ {2,}(?=DeepSeek Harness|<cwd>)/gu, '  ')
       .replace(/Output: (?:[\d.]+ tok\/s|Unavailable)/gu, 'Output: <speed> tok/s')
       .split('\n').map(line => line.trimEnd()).join('\n').replace(/\n+$/u, '') + '\n'
     await expect(rendered).toMatchFileSnapshot('./expected/conversation.txt')
@@ -409,6 +413,11 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     expect(screen()).toContain('● standard')
     child.write('\x1b')
     await expect.poll(screen, { timeout: 20000 }).not.toContain('Work mode')
+    child.write('/permission\r')
+    await expect.poll(screen, { timeout: 20000 }).toContain('Permission')
+    expect(screen()).toContain('● ')
+    child.write('\x1b')
+    await expect.poll(screen, { timeout: 20000 }).not.toContain('Find:')
     child.write(`/resume ${sessionId}\r`)
     await expect.poll(latestSession, { timeout: 20000 }).toBe(sessionId)
     child.write('\x1b[110;5u')
@@ -467,7 +476,7 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
       exited = Promise.withResolvers<number>()
       child = launch(['--connect', launchUrl])
       observe()
-      await expect.poll(screen, { timeout: 20000 }).toContain('Web: http:')
+      await expect.poll(identified, { timeout: 20000 }).toBe(true)
       child.write('external backend\r')
       await expect.poll(screen, { timeout: 20000 }).toContain('Reply to external backend')
       child.write('\x11')

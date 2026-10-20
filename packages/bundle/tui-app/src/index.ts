@@ -8,7 +8,9 @@ import type { TerminalView } from './transcript.ts'
 import { TerminalUi } from './ui.ts'
 import { TerminalControls } from './controls.ts'
 import { terminalCommands } from './completion.ts'
-import { SessionId, type HarnessPort, type PortAnswer, type PortQuestionRequest, type SkillSummary } from './port.ts'
+import {
+  SessionId, type HarnessPort, type HostCommand, type PortAnswer, type PortQuestionRequest, type SkillSummary,
+} from './port.ts'
 import { WebRemotePort } from './web-remote.ts'
 import { createRequire } from 'node:module'
 import { observe } from './conversation.ts'
@@ -18,6 +20,8 @@ import { readUpdateRecord, startUpdate, updateDue } from './auto-update.ts'
 import { chooseTints } from './appearance.ts'
 import { queryBackground } from './background-query.ts'
 import { startServer, type TerminalServer } from './server.ts'
+import { listenHost } from './listen.ts'
+import { networkInterfaces } from 'node:os'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -45,6 +49,8 @@ export interface Config {
   backendProfile: string
   /** Listener port for an owned backend(). */
   port: number
+  /** Listener address for an owned backend: `lan` (a local network interface), `loopback`, or one interface address. */
+  host: string
   /** Maximum startup and compatibility-check interval. */
   startupTimeoutMs: number
   /** Maximum graceful subprocess shutdown interval. */
@@ -79,6 +85,7 @@ export const Config: z<Config> = z.object({
   connect: z.string(),
   backendProfile: z.string().default('web'),
   port: z.natural().max(65535).default(0),
+  host: z.string().default('lan'),
   startupTimeoutMs: z.natural().min(1).default(20000),
   shutdownTimeoutMs: z.natural().min(1).default(5000),
   historyMessages: z.natural().min(1).default(200),
@@ -134,6 +141,12 @@ export function apply(ctx: Context, config: Config): void {
   let preferredMode: string | undefined
   const prompted = new Set<SessionId>()
   let skills: readonly SkillSummary[] = []
+  let hostCommands: readonly HostCommand[] = []
+  // `/` offers the Harness's commands and then its skills beside the terminal's own commands.
+  const offerCommands = (): void => {
+    ui?.commands([...hostCommands, ...skills.map(skill => ({ name: skill.name,
+      description: `${t('Skill')}${skill.description === '' ? '' : ` · ${skill.description}`}` }))])
+  }
   let interaction = Promise.resolve()
 
   const report = (error: unknown): void => {
@@ -149,8 +162,15 @@ export function apply(ctx: Context, config: Config): void {
     const next = operations.then(async () => { if (!lifetime.signal.aborted) await action() }).catch(report)
     operations = next
   }
+  // A held or repeated shortcut queues its picker once, not once per key press.
+  const pending = new Set<string>()
+  const serializeOnce = (key: string, action: () => Promise<void>): void => {
+    if (pending.has(key)) return
+    pending.add(key)
+    serialize(async () => { try { await action() } finally { pending.delete(key) } })
+  }
   const title = (): void => {
-    if (selected !== undefined) ui?.session(selected, backend().url, directory)
+    if (selected !== undefined) ui?.session(selected, directory)
   }
   const select = async (id: SessionId): Promise<void> => {
     follower?.abort()
@@ -174,6 +194,19 @@ export function apply(ctx: Context, config: Config): void {
       if (selected !== id) return
       skills = catalog
       ui?.banner({ skills: catalog })
+      offerCommands()
+    })
+    run(async () => {
+      let listed: HostCommand[]
+      try {
+        listed = await backend().hostCommands(id)
+      } catch (_error) {
+        // Without the Host's command list, lines that start with `/` keep going to the model as messages.
+        return
+      }
+      if (selected !== id) return
+      hostCommands = listed
+      offerCommands()
     })
     lifetime.signal.throwIfAborted()
     if (current !== selection) return
@@ -257,11 +290,41 @@ export function apply(ctx: Context, config: Config): void {
     await create()
     ui.status(t('Started a new conversation in {mode}; a conversation keeps its mode after its first message', { mode: mode.name }))
   }
+  // The Host reports a command's result as text; a short one fits the status line, a long one opens the reader.
+  const runHostCommand = async (line: string): Promise<void> => {
+    const id = selected
+    if (ui === undefined || id === undefined) return
+    const outcome = await backend().runCommand(id, line)
+    const text = outcome.text.trim()
+    if (!outcome.matched) ui.status(t('The Harness no longer offers {command}', { command: line.split(/\s+/u)[0] ?? line }))
+    else if (outcome.failed) ui.status(text === '' ? t('{command} failed', { command: line.split(/\s+/u)[0] ?? line }) : text)
+    else if (text.includes('\n')) await ui.view(line, text, lifetime.signal, true)
+    else ui.status(text === '' ? t('{command} done', { command: line.split(/\s+/u)[0] ?? line }) : text)
+  }
+  const choosePermission = async (): Promise<void> => {
+    if (ui === undefined) return
+    const presets = await backend().permissionPresets()
+    const current = controls?.permission()
+    const index = await ui.choose(t('Permission'), presets.map(preset => ({
+      label: `${preset.id === current ? '● ' : '  '}${preset.name}`, description: preset.description, search: `${preset.name} ${preset.id}`,
+    })), lifetime.signal, Math.max(0, presets.findIndex(preset => preset.id === current)))
+    const preset = index === undefined ? undefined : presets[index]
+    if (preset === undefined || preset.id === current) return
+    await runHostCommand(`/permission ${preset.id}`)
+  }
+  const archivedSessions = async (): Promise<ReadonlySet<SessionId>> => {
+    try {
+      return await backend().archivedSessions(lifetime.signal)
+    } catch (_error) {
+      // The archive only filters history lists; without it, archived conversations are listed too.
+      return new Set()
+    }
+  }
   const pick = async (): Promise<void> => {
     let all = false
     for (;;) {
-      const available = await backend().listSessions(lifetime.signal)
-      const visible = available.filter(item => !item.blank || item.id === selected)
+      const [available, archived] = await Promise.all([backend().listSessions(lifetime.signal), archivedSessions()])
+      const visible = available.filter(item => (!item.blank && !archived.has(item.id)) || item.id === selected)
       const sessions = all ? visible : await sessionsIn(process.cwd(), visible)
       const index = await ui?.choose(`${t('Conversations')} · ${t(all ? 'All projects' : 'Current project')}`, [
         t('+ New conversation'), ...sessions.map((item) => {
@@ -286,6 +349,7 @@ export function apply(ctx: Context, config: Config): void {
     if (selected !== id) return
     skills = catalog
     ui.banner({ skills: catalog })
+    offerCommands()
     if (catalog.length === 0) { ui.status(t('No skills are available for this conversation')); return }
     const index = await ui.choose(t('Skills'), catalog.map(skill => ({ label: skill.name, description: skill.description })), lifetime.signal)
     const skill = index === undefined ? undefined : catalog[index]
@@ -336,7 +400,11 @@ export function apply(ctx: Context, config: Config): void {
     if (['/new', '/clear', '/resume', '/tools', '/skills', '/mode', '/help', '/exit', '/web'].includes(command ?? '')) {
       ui?.accepted()
       if (command === '/new' || command === '/clear') await create()
-      else if (command === '/web') await ui?.view(t('Browser sign-in link'), `${backend().url}\n\n${t('Open it in a browser to configure providers and credentials. Treat it like a password.')}`, lifetime.signal)
+      else if (command === '/web') {
+        const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(backend().url).hostname)
+        await ui?.view(t('Browser sign-in link'), `${backend().url}\n\n${t('Open it in a browser to configure providers and credentials. Treat it like a password.')}${
+          local ? '' : `\n${t('Other computers on this network can open it too, and whoever has it can run commands on this computer.')}`}`, lifetime.signal)
+      }
       else if (command === '/resume') {
         if (argument === undefined) await pick()
         else await select(SessionId(argument))
@@ -344,11 +412,18 @@ export function apply(ctx: Context, config: Config): void {
       else if (command === '/skills') await chooseSkill()
       else if (command === '/mode') await chooseMode()
       else if (command === '/help') await ui?.view(t('Commands'),
-        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}${skills.length === 0 ? '' : `\n\n${t('Skills')}\n\n${skills.map(skill => `/${skill.name}${skill.description === '' ? '' : ` — ${skill.description}`}`).join('\n')}`}`, lifetime.signal)
+        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}${hostCommands.length === 0 ? '' : `\n\n${t('Harness commands')}\n\n${hostCommands.map(item => `/${item.name}${item.description === '' ? '' : ` — ${item.description}`}`).join('\n')}`}${skills.length === 0 ? '' : `\n\n${t('Skills')}\n\n${skills.map(skill => `/${skill.name}${skill.description === '' ? '' : ` — ${skill.description}`}`).join('\n')}`}`, lifetime.signal)
       else exit(0)
       return
     }
     if (await enqueue(async () => await controls?.command(text) ?? false)) { title(); return }
+    const hostName = command?.startsWith('/') === true ? command.slice(1) : undefined
+    if (hostName !== undefined && hostCommands.some(item => item.name === hostName) && ui !== undefined) {
+      ui.accepted()
+      if (hostName === 'permission' && argument === undefined) await choosePermission()
+      else await runHostCommand(text.trim())
+      return
+    }
     const queued = transcript.working
     prompted.add(selected)
     await backend().prompt(selected, text, lifetime.signal)
@@ -465,13 +540,17 @@ export function apply(ctx: Context, config: Config): void {
         } })
         ui = new TerminalUi({
           send: (text) => { serialize(() => send(text)) },
-          sessions: () => { serialize(pick) }, create: () => { serialize(create) }, cancel,
-          tools: () => { serialize(inspectTools) }, exit: () => { exit(0) },
+          sessions: () => { serializeOnce('sessions', pick) }, create: () => { serializeOnce('create', create) }, cancel,
+          tools: () => { serializeOnce('tools', inspectTools) }, exit: () => { exit(0) },
         }, config.completionDepth, config.completionFiles, tints, locale)
         ui.layout(config.statusLayout)
         ui.banner({ version })
         const startupSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.startupTimeoutMs)])
-        const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, config.startupTimeoutMs,
+        const host = listenHost(config.host, networkInterfaces())
+        if (config.connect === undefined && config.host === 'lan' && host === undefined) {
+          ui.status(t('No local network address was found; the Web service accepts connections from this computer only'))
+        }
+        const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, host, config.startupTimeoutMs,
           config.shutdownTimeoutMs, lifetime.signal, text => ui?.status(text))).url
         connection = await WebRemotePort.connect(url, startupSignal)
         attachInteractions()
@@ -497,7 +576,7 @@ export function apply(ctx: Context, config: Config): void {
         })
         title()
         run(async () => {
-          // Enabled only by running scripts/sync-upstream-tui.sh from a source checkout; the script needs bash.
+          // Enabled only by running scripts/setup-tui.sh from a source checkout; the script needs bash.
           const home = ctx.get('dshHomePath')
           if (home === undefined || process.platform === 'win32') return
           const record = await readUpdateRecord(home('addons', 'dsh-tui', 'auto-update.json'))
@@ -511,8 +590,10 @@ export function apply(ctx: Context, config: Config): void {
           }
         })
         run(async () => {
-          const here = await sessionsIn(process.cwd(), await backend().listSessions(lifetime.signal))
-          const [latest] = here.filter(item => !item.blank && item.title !== undefined).toSorted((a, b) => b.updatedAt - a.updatedAt)
+          const [listed, archived] = await Promise.all([backend().listSessions(lifetime.signal), archivedSessions()])
+          const here = await sessionsIn(process.cwd(), listed)
+          const [latest] = here.filter(item => !item.blank && !archived.has(item.id) && item.title !== undefined)
+            .toSorted((a, b) => b.updatedAt - a.updatedAt)
           if (latest?.title !== undefined) ui?.banner({ last: { title: latest.title, updatedAt: latest.updatedAt } })
         })
         serialize(async () => {

@@ -6,7 +6,8 @@
  */
 import type {
   Balance, CatalogModel, FollowFrame, Json, JournalEvent, ModelCatalogView, ModelChoice, Readings, ReadingsChange,
-  ReadingsResult, SessionSummary, SkillSummary, ModeChoice, StreamFrame, Wallet, PendingMessage,
+  ReadingsResult, SessionSummary, SkillSummary, ModeChoice, HostCommand, CommandOutcome, PermissionChoice, StreamFrame, Wallet,
+  PendingMessage,
 } from './port.ts'
 import { SessionId, PendingMessageId } from './port.ts'
 
@@ -125,6 +126,49 @@ export function readQueue(value: unknown): PendingMessage[] | undefined {
   }))
 }
 
+/** Read the Host's slash commands, ignoring entries without a name.
+ * @param value - `commands/list` response.
+ * @returns names with their descriptions; throws when the response is not a list. */
+export function readHostCommands(value: unknown): HostCommand[] {
+  if (!Array.isArray(value)) throw new Error('Invalid command list response')
+  return value.flatMap((item) => {
+    const row = dict(item)
+    const name = str(row.name)
+    return name === undefined ? [] : [{ name, description: str(row.description) ?? '' }]
+  })
+}
+
+/** Read one command execution.
+ * @param value - `commands/execute` response; undefined when no command matched.
+ * @returns the outcome, treating an unrecognized result as success without text. */
+export function readCommandOutcome(value: unknown): CommandOutcome {
+  if (value === undefined || value === null) return { matched: false, failed: false, text: '' }
+  const result = dict(dict(value).result)
+  return { matched: true, failed: result.kind === 'error', text: str(result.text) ?? '' }
+}
+
+/** Read the permission presets a conversation can choose.
+ * @param value - `permissionPresets/catalog` response.
+ * @returns selectable presets; throws when the response has no option list. */
+export function readPermissionPresets(value: unknown): PermissionChoice[] {
+  const options = dict(value).options
+  if (!Array.isArray(options)) throw new Error('Invalid permission preset response')
+  return options.flatMap((item) => {
+    const row = dict(item)
+    const id = str(row.value)
+    return id === undefined ? [] : [{ id, name: str(row.name) ?? id, description: str(row.description) ?? '' }]
+  })
+}
+
+/** Read the archived conversations from a Workspace follow frame.
+ * @param value - `workspace/follow` frame.
+ * @returns the archived identities from a baseline frame, or undefined for any other frame. */
+export function readArchivedSessions(value: unknown): Set<SessionId> | undefined {
+  const frame = dict(value)
+  if (frame.type !== 'baseline') return undefined
+  return new Set(list(dict(frame.value).archivedSessionIds).flatMap(id => typeof id === 'string' ? [SessionId(id)] : []))
+}
+
 /** Read the work-mode roster, ignoring entries without an identifier.
  * @param value - `agentPresets/list` response.
  * @returns modes in the Harness's order; throws when the response is not a roster. */
@@ -189,7 +233,9 @@ function readValues(value: unknown): Readings {
     ['turns', 'steps', 'ttftMs', 'ttftSteps', 'decodeMs', 'decodeTokens'].map(key => num(stats[key]))
   const title = str(values.title)
   const mode = str(values.agentPreset)
+  const permission = str(dict(values.permissions).currentValue)
   return {
+    ...permission === undefined ? {} : { permission },
     ...title === undefined || title === '' ? {} : { title },
     ...mode === undefined ? {} : { mode },
     ...next === undefined ? {} : { next },

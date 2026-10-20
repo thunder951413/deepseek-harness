@@ -3,7 +3,7 @@
 #   write_dsh_wrapper <path> <command-name> <checkout>
 #
 # Writes an executable `dsh` command that runs the checkout's built CLI. While
-# scripts/sync-upstream-tui.sh holds its lock and rewrites that build, the command waits for it,
+# scripts/setup-tui.sh holds its lock and rewrites that build, the command waits for it,
 # except when the sync itself runs the command: the sync exports DSH_TUI_SYNC_PID as the lock owner.
 DSH_WRAPPER_MARKER="# managed by scripts/setup-tui.sh"
 write_dsh_wrapper() {
@@ -11,7 +11,7 @@ write_dsh_wrapper() {
   cat > "$path" <<WRAPPER
 #!/bin/sh
 ${DSH_WRAPPER_MARKER}
-# scripts/sync-upstream-tui.sh rewrites the build output while it holds this lock.
+# scripts/setup-tui.sh rewrites the build output while it holds this lock.
 lock="\${DSH_HOME:-\$HOME/.dsh}/addons/dsh-tui/auto-update.lock"
 owner="\$(cat "\$lock/pid" 2>/dev/null || true)"
 if [ -n "\$owner" ] && [ "\$owner" != "\${DSH_TUI_SYNC_PID:-}" ] && kill -0 "\$owner" 2>/dev/null; then

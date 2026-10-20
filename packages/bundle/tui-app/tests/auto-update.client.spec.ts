@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import { readUpdateRecord, startUpdate, updateDue, type UpdateRecord } from '../src/auto-update.ts'
 
-const record: UpdateRecord = { checkout: '/src/dsh', remote: 'origin', branch: 'master', dsh: '/bin/dsh', intervalDays: 7,
+const record: UpdateRecord = { checkout: '/src/dsh', remote: 'origin', branch: 'master', name: 'dsh', binDir: '/home/bin', intervalDays: 7,
   lastCheck: 1_000, status: 'updated', message: 'Merged 3 official commit(s)', log: '/home/auto-update.log' }
 
 it('reads a record, treats a missing one as disabled, and rejects a malformed one', async ({ onTestFinished }) => {
@@ -15,7 +15,10 @@ it('reads a record, treats a missing one as disabled, and rejects a malformed on
   expect(await readUpdateRecord(path)).toBeUndefined()
   await writeFile(path, JSON.stringify({ ...record, version: 1, updatedAt: 2 }))
   expect(await readUpdateRecord(path)).toEqual(record)
-  for (const broken of [{ ...record, status: 'unknown' }, { ...record, intervalDays: 0 }, { ...record, lastCheck: '1' }, { ...record, dsh: 3 }, null]) {
+  const { name: _name, binDir: _binDir, ...legacy } = record
+  await writeFile(path, JSON.stringify({ ...legacy, version: 1, dsh: '/home/bin/dsh' }))
+  expect(await readUpdateRecord(path)).toEqual(record)
+  for (const broken of [{ ...record, status: 'unknown' }, { ...record, intervalDays: 0 }, { ...record, lastCheck: '1' }, { ...record, name: 3 }, null]) {
     await writeFile(path, JSON.stringify(broken))
     await expect(readUpdateRecord(path)).rejects.toThrow('Invalid automatic update record')
   }
@@ -31,7 +34,7 @@ it('repeats the recorded options in a detached run that outlives the terminal', 
   const unref = vi.fn()
   const launch = vi.fn((_command: string, _args: string[], _options: object) => ({ unref }))
   startUpdate(record, launch)
-  expect(launch).toHaveBeenCalledWith('bash', ['/src/dsh/scripts/sync-upstream-tui.sh', '--if-due', '--wait-for-idle', '--remote', 'origin',
-    '--branch', 'master', '--dsh', '/bin/dsh', '--interval-days', '7'], { cwd: '/src/dsh', detached: true, stdio: 'ignore' })
+  expect(launch).toHaveBeenCalledWith('bash', ['/src/dsh/scripts/setup-tui.sh', '--if-due', '--wait-for-idle', '--remote', 'origin',
+    '--branch', 'master', '--name', 'dsh', '--bin-dir', '/home/bin', '--interval-days', '7'], { cwd: '/src/dsh', detached: true, stdio: 'ignore' })
   expect(unref).toHaveBeenCalled()
 })

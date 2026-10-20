@@ -13,16 +13,18 @@ export interface TerminalServer {
 /** Start the invoking CLI's Web profile without modifying its installation.
  * @param profile - backend profile with the ordinary base and Web bundles.
  * @param port - requested listener port; zero asks the operating system.
+ * @param host - interface address to bind; undefined keeps the backend's loopback default.
  * @param timeoutMs - startup deadline.
  * @param shutdownMs - maximum graceful shutdown interval.
  * @param signal - terminal lifetime.
  * @param report - bounded backend diagnostics without launch tokens.
  * @returns a ready listener and its owned shutdown operation. */
-export async function startServer(profile: string, port: number, timeoutMs: number, shutdownMs: number,
+export async function startServer(profile: string, port: number, host: string | undefined, timeoutMs: number, shutdownMs: number,
   signal: AbortSignal, report: (text: string) => void): Promise<TerminalServer> {
   const bin = process.argv[1]
   if (bin === undefined) throw new Error('The terminal must be started through a dsh profile')
-  const child = execa(process.execPath, [...process.execArgv, bin, '--profile', profile, '--no-open', '--port', String(port)], {
+  const child = execa(process.execPath, [...process.execArgv, bin, '--profile', profile, '--no-open', '--port', String(port),
+    ...host === undefined ? [] : ['--host', host]], {
     stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', reject: false, forceKillAfterDelay: shutdownMs,
   })
   const ready = Promise.withResolvers<string>()

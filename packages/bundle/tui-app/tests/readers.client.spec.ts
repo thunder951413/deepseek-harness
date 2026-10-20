@@ -1,8 +1,8 @@
 /** Tolerant readers accept additive wire changes and degrade malformed optional data. */
 import { expect, it } from 'vitest'
 import {
-  readQueue, readSearch, readSkills, readModes, json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame,
-  readReadings, readSessionList, readWorkspaceId,
+  readQueue, readSearch, readSkills, readModes, readArchivedSessions, json, readBalance, readCatalog, readControlFrame,
+  readCreated, readFollowFrame, readReadings, readSessionList, readWorkspaceId, readHostCommands, readCommandOutcome, readPermissionPresets,
 } from '../src/readers.ts'
 
 it('keeps plain JSON and replaces members that cannot be serialized', () => {
@@ -133,4 +133,25 @@ it('reads work modes with display fallbacks and the mode of a conversation', () 
     { id: 'ptc', name: 'ptc', description: '', isDefault: false, broken: 'missing runtime' }])
   expect(() => readModes({ presets: 'none' })).toThrow('Invalid work mode')
   expect(readReadings({ kind: 'sequenced', values: { agentPreset: 'ptc' } })).toEqual({ kind: 'values', readings: { mode: 'ptc' } })
+})
+
+it('reads archived conversations from the Workspace baseline and ignores other frames', () => {
+  expect(readArchivedSessions({ type: 'baseline', value: { items: [], archivedSessionIds: ['a', 3, 'b'], pinnedSessionIds: [] } }))
+    .toEqual(new Set(['a', 'b']))
+  expect(readArchivedSessions({ type: 'baseline', value: {} })).toEqual(new Set())
+  expect(readArchivedSessions({ type: 'archived', archivedSessionIds: ['a'] })).toBeUndefined()
+})
+
+it('reads Host commands, command outcomes, permission presets, and the current permission', () => {
+  expect(readHostCommands([{ name: 'compact', description: 'Compact context', input: {} }, { name: 'goal' }, { description: 'nameless' }]))
+    .toEqual([{ name: 'compact', description: 'Compact context' }, { name: 'goal', description: '' }])
+  expect(() => readHostCommands({ commands: [] })).toThrow('Invalid command list')
+  expect(readCommandOutcome(undefined)).toEqual({ matched: false, failed: false, text: '' })
+  expect(readCommandOutcome({ commandId: 'c', result: { kind: 'success', text: 'Compacted' } })).toEqual({ matched: true, failed: false, text: 'Compacted' })
+  expect(readCommandOutcome({ commandId: 'c', result: { kind: 'error', text: 'No context' } })).toEqual({ matched: true, failed: true, text: 'No context' })
+  expect(readCommandOutcome({ commandId: 'c' })).toEqual({ matched: true, failed: false, text: '' })
+  expect(readPermissionPresets({ options: [{ value: 'read-only', name: 'Read only', description: 'No writes' }, { value: 'auto' }, { name: 'x' }] }))
+    .toEqual([{ id: 'read-only', name: 'Read only', description: 'No writes' }, { id: 'auto', name: 'auto', description: '' }])
+  expect(() => readPermissionPresets({})).toThrow('Invalid permission preset')
+  expect(readReadings({ kind: 'sequenced', values: { permissions: { currentValue: 'auto' } } })).toEqual({ kind: 'values', readings: { permission: 'auto' } })
 })

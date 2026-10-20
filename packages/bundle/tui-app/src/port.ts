@@ -43,6 +43,30 @@ export interface PendingMessage {
   readonly target: 'next-turn' | 'next-step'
 }
 
+/** One slash command the Host runs for a conversation, such as `/compact` or `/permission`. */
+export interface HostCommand {
+  /** Name typed after `/`. */
+  readonly name: string
+  readonly description: string
+}
+
+/** What the Host did with one command line. */
+export interface CommandOutcome {
+  /** False when no Host command has the line's name. */
+  readonly matched: boolean
+  readonly failed: boolean
+  /** Result or failure text; empty when the command reports none. */
+  readonly text: string
+}
+
+/** One permission preset a conversation can switch to with `/permission`. */
+export interface PermissionChoice {
+  readonly id: string
+  readonly name: string
+  /** One user-facing sentence on what the preset allows; empty when none is configured. */
+  readonly description: string
+}
+
 /** One work mode: an agent preset the Harness composes for a conversation. */
 export interface ModeChoice {
   readonly id: string
@@ -122,6 +146,8 @@ export interface Readings {
   readonly title?: string
   /** Work mode the conversation runs; absent means the Harness default. */
   readonly mode?: string
+  /** Current permission preset, `auto`, or `custom`; absent when the Harness has no permission presets. */
+  readonly permission?: string
   readonly next?: ModelChoice
   readonly usage?: {
     readonly uncachedInput: number
@@ -206,6 +232,10 @@ export interface Capabilities {
   readonly skills: boolean
   /** Work modes. */
   readonly modes: boolean
+  /** Host slash commands. */
+  readonly commands: boolean
+  /** Permission presets. */
+  readonly permissions: boolean
   readonly management: boolean
   readonly queue: boolean
   readonly export: boolean
@@ -226,6 +256,22 @@ export interface HarnessPort {
    * @param signal - cancellation.
    * @returns matching identities and excerpts, plus whether more matches exist. */
   search(query: string, signal: AbortSignal): Promise<{ items: readonly { id: SessionId; snippet: string }[]; hasMore: boolean }>
+  /** List the Host's slash commands for a conversation.
+   * @param sessionId - conversation whose composition selects the commands.
+   * @returns commands in the Host's order; throws `Unsupported` when the Harness has no command registry. */
+  hostCommands(sessionId: SessionId): Promise<HostCommand[]>
+  /** Run one Host slash-command line in a conversation.
+   * @param sessionId - conversation.
+   * @param line - the whole line, leading slash included.
+   * @returns whether a command matched and what it reported. */
+  runCommand(sessionId: SessionId, line: string): Promise<CommandOutcome>
+  /** List the permission presets a conversation can switch to.
+   * @returns presets in the Host's order; throws `Unsupported` when the Harness has none. */
+  permissionPresets(): Promise<PermissionChoice[]>
+  /** Read which conversations the Workspace browser has archived.
+   * @param signal - cancellation.
+   * @returns archived conversation identities; throws when the Workspace state cannot be read. */
+  archivedSessions(signal: AbortSignal): Promise<ReadonlySet<SessionId>>
   /** List the work modes.
    * @param signal - cancellation.
    * @returns every declared mode, including ones that cannot start; throws `Unsupported` when the Harness composes none. */

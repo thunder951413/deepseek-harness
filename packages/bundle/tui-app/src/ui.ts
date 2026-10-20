@@ -22,10 +22,11 @@ class ScrollbackTerminal extends ProcessTerminal {
 }
 
 class PromptEditor extends Editor {
-  constructor(tui: TuiMainScreen, private readonly locale: TerminalLocale) { super(tui, editorTheme, { paddingX: 0 }) }
+  constructor(tui: TuiMainScreen, private readonly locale: TerminalLocale, private readonly isCommand: (text: string) => boolean) {
+    super(tui, editorTheme, { paddingX: 0 })
+  }
   override handleInput(data: string): void {
-    if (matchesKey(data, 'enter') && this.isShowingAutocomplete()
-      && terminalCommands.some(command => this.getText().trim() === `/${command.name}`)) super.handleInput('\x1b')
+    if (matchesKey(data, 'enter') && this.isShowingAutocomplete() && this.isCommand(this.getText())) super.handleInput('\x1b')
     super.handleInput(data)
   }
 
@@ -277,7 +278,7 @@ export class TerminalUi {
     this.panelBox.addChild(this.panel)
     this.completion = new ProjectCompletion(process.cwd(), completionDepth, completionFiles, (message) => { this.status(message) },
       (message) => { this.completionNotice.setText(color.dim(message)); this.tui.requestRender() }, locale)
-    this.editor = new PromptEditor(this.tui, this.locale)
+    this.editor = new PromptEditor(this.tui, this.locale, text => this.completion.isCommand(text))
     this.editor.setAutocompleteProvider(this.completion)
     this.editor.onSubmit = (text) => {
       this.editor.setText(text)
@@ -339,10 +340,9 @@ export class TerminalUi {
   /**
    * Display one conversation and initialize file completion from its directory.
    * @param id - selected Session identity.
-   * @param url - shared Web application's authenticated URL.
    * @param directory - selected Session's directory.
    */
-  session(id: string, url: string, directory: string): void {
+  session(id: string, directory: string): void {
     if (this.closed) return
     if (id === this.selected && directory === this.directory) return
     this.completion.setDirectory(directory)
@@ -363,7 +363,6 @@ export class TerminalUi {
     this.bar.right = [
       { text: this.identity(id), keep: 'start' },
       { text: terminalText(directory), keep: 'end' },
-      { text: terminalText(`Web: ${new URL('/', url).origin} · /web for the sign-in link`), keep: 'start' },
     ]
     this.messages.clear()
     this.blocks.clear()
@@ -536,7 +535,7 @@ export class TerminalUi {
         resolve(value)
       }
       const abort = (): void => { done() }
-      const input = new PromptEditor(this.tui, this.locale)
+      const input = new PromptEditor(this.tui, this.locale, () => false)
       input.setText(initial)
       input.onSubmit = (value) => { if (value.trim() !== '') done(value) }
       const removeKeys = this.tui.addInputListener((data) => {
@@ -560,6 +559,16 @@ export class TerminalUi {
     if (this.closed) return
     this.editor.setText(text)
     this.tui.requestRender()
+  }
+
+  /**
+   * Offer the Harness's commands and skills after `/` beside the terminal's own commands.
+   * @param commands - names with display descriptions; terminal commands keep names they share.
+   */
+  commands(commands: readonly { readonly name: string; readonly description: string }[]): void {
+    if (this.closed) return
+    this.completion.setExtraCommands(commands)
+    this.editor.setAutocompleteProvider(this.completion)
   }
 
   /** Display the current pending-message count.

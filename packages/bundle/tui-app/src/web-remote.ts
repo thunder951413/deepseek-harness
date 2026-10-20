@@ -16,6 +16,8 @@ import workspaceInfo from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import accountInfo from '@deepseek-ai/dsh-api-account-controller/remote'
 import questionInfo from '@deepseek-ai/dsh-user-questions/remote'
 import presetInfo from '@deepseek-ai/dsh-agent-preset-registry/remote'
+import commandInfo from '@deepseek-ai/dsh-commands/remote'
+import permissionInfo from '@deepseek-ai/dsh-permission-presets/remote'
 import type { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -29,7 +31,8 @@ import {
 } from './port.ts'
 import {
   readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings, readSessionList,
-  readWorkspaceId, readQueue, readSearch, readSkills, readModes,
+  readWorkspaceId, readQueue, readSearch, readSkills, readModes, readArchivedSessions, readHostCommands, readCommandOutcome,
+  readPermissionPresets,
 } from './readers.ts'
 import { approvalCallText } from './wire-transcript.ts'
 
@@ -64,8 +67,8 @@ export class WebRemotePort implements HarnessPort {
   private readonly client = new Context()
   private readonly scopes = new WeakMap<object, WireSessionId>()
   private readonly features: { -readonly [Key in keyof Capabilities]: boolean } =
-    { models: true, readings: true, balance: true, questions: true, search: true, skills: true, modes: true, management: true, queue: true,
-      export: true }
+    { models: true, readings: true, balance: true, questions: true, search: true, skills: true, modes: true, commands: true,
+      permissions: true, management: true, queue: true, export: true }
   private connection: ConnectionHandle | undefined
   private startupSignal: AbortSignal | undefined
   private readonly lifetime = new AbortController()
@@ -155,7 +158,7 @@ export class WebRemotePort implements HarnessPort {
         },
       }), 'tui.remote.agent-context')
       await port.client.plugin(Gateway)
-      for (const info of [sessionInfo, workspaceInfo, accountInfo, questionInfo, presetInfo]) {
+      for (const info of [sessionInfo, workspaceInfo, accountInfo, questionInfo, presetInfo, commandInfo, permissionInfo]) {
         await port.client.remote.$mount({ package: info.package, descriptors: info.descriptors })
       }
       await port.waitReady(signal)
@@ -226,6 +229,27 @@ export class WebRemotePort implements HarnessPort {
 
   async skills(sessionId: SessionId, signal: AbortSignal) {
     return readSkills(this.optional('skills', 'skills/list', await this.remote().skills.list({ sessionId: wire(sessionId) }, signal)))
+  }
+
+  async hostCommands(sessionId: SessionId) {
+    return readHostCommands(this.optional('commands', 'commands/list', await this.remote().commands.list(wire(sessionId))))
+  }
+
+  async runCommand(sessionId: SessionId, line: string) {
+    return readCommandOutcome(this.required('commands/execute', await this.remote().commands.execute(wire(sessionId), line, [])))
+  }
+
+  async permissionPresets() {
+    return readPermissionPresets(this.optional('permissions', 'permissionPresets/catalog', await this.remote().permissionPresets.catalog()))
+  }
+
+  async archivedSessions(signal: AbortSignal): Promise<ReadonlySet<SessionId>> {
+    // Only the opening baseline is needed; leaving the loop closes the stream.
+    for await (const raw of this.remote().workspace.follow(signal)) {
+      const archived = readArchivedSessions(raw)
+      if (archived !== undefined) return archived
+    }
+    return new Set()
   }
 
   async modes(_signal: AbortSignal) {

@@ -30,10 +30,11 @@ function parse(args: string[], interactive = true) {
 
 it('declares its identity and publishes the parsed invocation', () => {
   expect([name, inject]).toEqual(['tui-startup', ['cmdlineArgs']])
-  const { started, exit } = parse(['--session', 's1', '--connect', 'http://127.0.0.1:1/?token=t', '--backend-profile', 'dev', '--port', '8080'])
-  expect(started).toEqual({ session: 's1', connect: 'http://127.0.0.1:1/?token=t', backendProfile: 'dev', port: 8080 })
+  const { started, exit } = parse(['--session', 's1', '--connect', 'http://127.0.0.1:1/?token=t', '--backend-profile', 'dev', '--port', '8080',
+    '--host', 'loopback'])
+  expect(started).toEqual({ session: 's1', connect: 'http://127.0.0.1:1/?token=t', backendProfile: 'dev', port: 8080, host: 'loopback' })
   expect(exit).not.toHaveBeenCalled()
-  expect(parse([]).started).toEqual({ backendProfile: 'web', port: 0 })
+  expect(parse([]).started).toEqual({ backendProfile: 'web', port: 0, host: 'lan' })
 })
 
 it('rejects invalid ports, empty sessions, the terminal profile as backend, and redirected streams', () => {

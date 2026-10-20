@@ -73,6 +73,12 @@
       "path": "../../preset/agent-preset-registry"
     },
     {
+      "path": "../../interaction/commands"
+    },
+    {
+      "path": "../../interaction/permission-presets"
+    },
+    {
       "path": "../../typert/registry"
     },
     {

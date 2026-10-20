@@ -308,3 +308,13 @@ it('names the work mode of the conversation in the status, falling back to the d
   vi.mocked(services.modes).mockRejectedValueOnce(new Error('offline'))
   await expect(controls.loadModes()).rejects.toThrow('offline')
 })
+
+it('reports the current permission and refreshes it when the Host changes it', async () => {
+  const { controls, services, changes } = harness()
+  await controls.select(SessionId('s'))
+  expect(controls.permission()).toBeUndefined()
+  vi.mocked(services.readings).mockResolvedValueOnce({ kind: 'values', readings: { permission: 'read-only' } })
+  changes.push({ sessionId: SessionId('s'), key: 'permissions' })
+  await controls.watchSessions()
+  expect(controls.permission()).toBe('read-only')
+})

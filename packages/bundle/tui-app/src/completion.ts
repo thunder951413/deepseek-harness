@@ -35,6 +35,7 @@ export class ProjectCompletion implements AutocompleteProvider {
   private files: Promise<string[]> | undefined
   private generation = 0
   private provider: CombinedAutocompleteProvider
+  private extra: readonly SlashCommand[] = []
 
   /**
    * @param directory - directory of the selected Session.
@@ -47,14 +48,40 @@ export class ProjectCompletion implements AutocompleteProvider {
   constructor(private directory: string, private readonly depth: number, private readonly limit: number,
     private readonly report: (message: string) => void, private readonly state?: (message: string) => void,
     private readonly locale = new TerminalLocale()) {
-    this.provider = new CombinedAutocompleteProvider(terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description ?? '') })), directory)
+    this.provider = new CombinedAutocompleteProvider(this.commands(), directory)
+  }
+
+  /** Terminal commands first, then added commands whose names they do not already take. */
+  private commands(): SlashCommand[] {
+    const local = terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description ?? '') }))
+    const taken = new Set(local.map(command => command.name))
+    return [...local, ...this.extra.filter(command => !taken.has(command.name))]
+  }
+
+  /**
+   * Offer more commands after `/`, such as the Harness's commands and skills; terminal commands keep their names.
+   * @param extra - commands with display descriptions, replacing the previous set.
+   */
+  setExtraCommands(extra: readonly SlashCommand[]): void {
+    this.extra = extra
+    this.provider = new CombinedAutocompleteProvider(this.commands(), this.directory)
+  }
+
+  /**
+   * Decide whether a line is exactly one offered command, so Enter runs it instead of accepting a suggestion.
+   * @param text - editor contents.
+   * @returns true for `/name` of a terminal or added command.
+   */
+  isCommand(text: string): boolean {
+    const line = text.trim()
+    return line.startsWith('/') && this.commands().some(command => command.name === line.slice(1))
   }
 
   /** Set the selected Session's directory and discard its old file index.
    * @param directory - current Session directory. */
   setDirectory(directory: string): void {
     this.directory = directory
-    this.provider = new CombinedAutocompleteProvider(terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description ?? '') })), directory)
+    this.provider = new CombinedAutocompleteProvider(this.commands(), directory)
     this.refresh()
   }
 

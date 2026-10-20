@@ -8,7 +8,7 @@ import { startServer } from '../src/server.ts'
 const originalBin = process.argv[1]
 afterEach(() => { process.argv[1] = originalBin as string })
 
-async function backend(mode: 'ready' | 'exit' | 'silent', onTestFinished: (cleanup: () => Promise<void>) => void): Promise<void> {
+async function backend(mode: 'ready' | 'exit' | 'silent' | 'arguments', onTestFinished: (cleanup: () => Promise<void>) => void): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'tui-server-'))
   onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
   const script = join(root, 'backend.mjs')
@@ -16,6 +16,7 @@ async function backend(mode: 'ready' | 'exit' | 'silent', onTestFinished: (clean
 const mode = ${JSON.stringify(mode)}
 process.on('SIGTERM', () => { console.log('closing'); process.exit(0) })
 if (mode === 'exit') process.exit(3)
+if (mode === 'arguments') console.log('dsh web: http://127.0.0.1:4321/?token=' + encodeURIComponent(process.argv.slice(2).join(' ')))
 if (mode === 'ready') {
   console.error('warning https://x.test/?token=secret&a=1')
   console.log('plain line')
@@ -30,7 +31,7 @@ setInterval(() => {}, 1000)
 it('returns the authenticated URL, forwards redacted diagnostics, and closes the child once', async ({ onTestFinished }) => {
   await backend('ready', onTestFinished)
   const report = vi.fn<(text: string) => void>()
-  const server = await startServer('web', 0, 10000, 1000, new AbortController().signal, report)
+  const server = await startServer('web', 0, undefined, 10000, 1000, new AbortController().signal, report)
   expect(server.url).toBe('http://127.0.0.1:4321/?token=abc')
   await expect.poll(() => report.mock.calls.flat()).toContain('warning https://x.test/?token=[redacted]&a=1')
   expect(report.mock.calls.flat().join('\n')).not.toContain('secret')
@@ -41,7 +42,7 @@ it('closes the child when the terminal lifetime is aborted', async ({ onTestFini
   await backend('ready', onTestFinished)
   const abort = new AbortController()
   const report = vi.fn<(text: string) => void>()
-  const server = await startServer('web', 0, 10000, 1000, abort.signal, report)
+  const server = await startServer('web', 0, undefined, 10000, 1000, abort.signal, report)
   abort.abort()
   await expect.poll(() => report.mock.calls.flat()).toContain('closing')
   await server.close()
@@ -49,12 +50,12 @@ it('closes the child when the terminal lifetime is aborted', async ({ onTestFini
 
 it('reports a backend that exits before it is ready', async ({ onTestFinished }) => {
   await backend('exit', onTestFinished)
-  await expect(startServer('web', 0, 10000, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('exited before startup (3)')
+  await expect(startServer('web', 0, undefined, 10000, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('exited before startup (3)')
 })
 
 it('stops a backend that never reports readiness', async ({ onTestFinished }) => {
   await backend('silent', onTestFinished)
-  await expect(startServer('web', 0, 100, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('startup timed out')
+  await expect(startServer('web', 0, undefined, 100, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('startup timed out')
 })
 
 it('reports a backend that cannot be launched', async ({ onTestFinished }) => {
@@ -62,7 +63,7 @@ it('reports a backend that cannot be launched', async ({ onTestFinished }) => {
   const original = process.execPath
   Object.defineProperty(process, 'execPath', { value: '/nonexistent/node', configurable: true })
   try {
-    await expect(startServer('web', 0, 10000, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('exited before startup (unknown)')
+    await expect(startServer('web', 0, undefined, 10000, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('exited before startup (unknown)')
   } finally { Object.defineProperty(process, 'execPath', { value: original, configurable: true }) }
 })
 
@@ -70,7 +71,17 @@ it('refuses to start when already cancelled or when there is no launcher entry',
   await backend('ready', onTestFinished)
   const abort = new AbortController()
   abort.abort()
-  await expect(startServer('web', 0, 10000, 1000, abort.signal, vi.fn())).rejects.toThrow()
+  await expect(startServer('web', 0, undefined, 10000, 1000, abort.signal, vi.fn())).rejects.toThrow()
   process.argv.length = 1
-  await expect(startServer('web', 0, 10000, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('through a dsh profile')
+  await expect(startServer('web', 0, undefined, 10000, 1000, new AbortController().signal, vi.fn())).rejects.toThrow('through a dsh profile')
+})
+
+it('binds the requested interface address and leaves the backend default without one', async ({ onTestFinished }) => {
+  await backend('arguments', onTestFinished)
+  const lan = await startServer('web', 0, '192.168.1.5', 10000, 1000, new AbortController().signal, vi.fn())
+  expect(decodeURIComponent(new URL(lan.url).searchParams.get('token') ?? '')).toBe('--profile web --no-open --port 0 --host 192.168.1.5')
+  await lan.close()
+  const loopback = await startServer('web', 0, undefined, 10000, 1000, new AbortController().signal, vi.fn())
+  expect(decodeURIComponent(new URL(loopback.url).searchParams.get('token') ?? '')).toBe('--profile web --no-open --port 0')
+  await loopback.close()
 })

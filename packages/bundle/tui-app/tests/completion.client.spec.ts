@@ -168,3 +168,24 @@ it('lists an explicitly named hidden directory and reports empty searches indepe
     expect(report).not.toHaveBeenCalled()
   } finally { await completion.dispose(); await rm(root, { recursive: true, force: true }) }
 })
+
+it('offers Harness commands and skills after the terminal commands without letting them take a terminal name', async ({ onTestFinished }) => {
+  const root = await mkdtemp(join(tmpdir(), 'tui-commands-'))
+  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+  const completion = new ProjectCompletion(root, 8, 100, vi.fn())
+  onTestFinished(async () => { await completion.dispose() })
+  completion.setExtraCommands([{ name: 'compact', description: 'Compact context' }, { name: 'model', description: 'Host model' },
+    { name: 'dsh-doc', description: 'Skill · Write docs' }])
+  const options = { signal: new AbortController().signal }
+  const items = (await completion.getSuggestions(['/'], 0, 1, options))?.items ?? []
+  expect(items.find(item => item.value === 'compact')?.description).toBe('Compact context')
+  expect(items.find(item => item.value === 'dsh-doc')?.description).toBe('Skill · Write docs')
+  expect(items.filter(item => item.value === 'model')).toHaveLength(1)
+  expect(items.find(item => item.value === 'model')?.description).not.toBe('Host model')
+  expect(completion.isCommand(' /compact ')).toBe(true)
+  expect(completion.isCommand('/new')).toBe(true)
+  expect(completion.isCommand('/compact now')).toBe(false)
+  expect(completion.isCommand('compact')).toBe(false)
+  completion.setDirectory(root)
+  expect(completion.isCommand('/dsh-doc')).toBe(true)
+})
