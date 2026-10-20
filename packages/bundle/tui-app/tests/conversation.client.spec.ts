@@ -33,3 +33,13 @@ it('uses the snapshot directory and stops once aborted', async () => {
   }
   expect(seen).toEqual(['/project'])
 })
+
+it('replaces the baseline on recovery and exposes omitted older history', async () => {
+  const snapshot: FollowFrame = { kind: 'snapshot', hasMore: true, events: [
+    { type: 'user/message', seq: 1, data: { source: { kind: 'user' }, content: 'one' } },
+  ] }
+  const updates = []
+  for await (const update of observe(port([snapshot, snapshot]), SessionId('s'), 1, 1000, '/project', new AbortController().signal)) updates.push(update)
+  expect(updates[1]?.view.entries).toHaveLength(1)
+  expect(updates[1]?.view.truncated).toBe(true)
+})

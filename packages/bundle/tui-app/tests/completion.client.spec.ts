@@ -149,3 +149,22 @@ it('reports unreadable project directories and retries on the next request', asy
   completion.setDirectory(root)
   expect((await completion.getSuggestions(['@'], 0, 1, { signal: new AbortController().signal }))?.items.map(item => item.label)).toEqual(['not-a-directory'])
 })
+
+it('lists an explicitly named hidden directory and reports empty searches independently', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'tui-explicit-'))
+  const state = vi.fn()
+  const report = vi.fn()
+  const completion = new ProjectCompletion(root, 2, 100, report, state)
+  try {
+    await mkdir(join(root, '.config'))
+    await writeFile(join(root, '.config', 'settings.json'), '{}')
+    const options = { signal: new AbortController().signal }
+    expect(await completion.getSuggestions(['@settings'], 0, 9, options)).toBeNull()
+    expect(state).toHaveBeenLastCalledWith('No matching project files')
+    const query = '@.config/set'
+    expect((await completion.getSuggestions([query], 0, query.length, options))?.items.map(item => item.label))
+      .toEqual(['.config/settings.json'])
+    expect(state).toHaveBeenLastCalledWith('')
+    expect(report).not.toHaveBeenCalled()
+  } finally { await completion.dispose(); await rm(root, { recursive: true, force: true }) }
+})

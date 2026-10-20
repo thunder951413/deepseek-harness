@@ -1,4 +1,5 @@
 /** Whole-session terminal readings over the same projections used by the Web client. */
+import { TerminalLocale } from './locale.ts'
 import type { Balance, ModelChoice, Readings } from './port.ts'
 import { formatCacheHitPercent, formatTokensPerSecond } from '@deepseek-ai/dsh-token-meter/client'
 
@@ -24,17 +25,18 @@ export function cents(value: string): string {
 /**
  * Render recharge and bonus wallets to the cent without combining currencies.
  * @param balance - latest account query outcome.
+ * @param locale - terminal interface language.
  * @returns display-safe wallet reading; callers strip terminal control sequences.
  */
-export function balanceText(balance: BalanceReading): string {
-  if (balance === 'loading') return 'Loading…'
-  if (balance === null) return '未提供'
-  if (balance.status === 'failed') return 'Query failed · /stats to retry'
+export function balanceText(balance: BalanceReading, locale = new TerminalLocale()): string {
+  if (balance === 'loading') return locale.text('Loading…')
+  if (balance === null) return locale.text('Unavailable')
+  if (balance.status === 'failed') return locale.text('Query failed · /stats to retry')
   const wallets = [
     ...balance.wallets.map(wallet => `${wallet.currency} ${cents(wallet.balance)}`),
-    ...balance.bonusWallets.map(wallet => `${wallet.currency} ${cents(wallet.balance)} bonus`),
+    ...balance.bonusWallets.map(wallet => `${wallet.currency} ${cents(wallet.balance)} ${locale.text('bonus')}`),
   ]
-  return wallets.length === 0 ? '未提供' : wallets.join(' + ')
+  return wallets.length === 0 ? locale.text('Unavailable') : wallets.join(' + ')
 }
 
 /**
@@ -42,28 +44,29 @@ export function balanceText(balance: BalanceReading): string {
  * @param values - authoritative Session projections, independent of the transcript window.
  * @param selection - next request's selection, or the deployment default for a blank Session.
  * @param balance - account wallet query outcome.
+ * @param locale - terminal interface language.
  * @returns compact status and a detailed statistics panel.
  */
 export function sessionReadings(
-  values: Readings, selection: ModelChoice | undefined, balance: BalanceReading,
+  values: Readings, selection: ModelChoice | undefined, balance: BalanceReading, locale = new TerminalLocale(),
 ): { compact: string; details: string } {
   const stats = values.stats
   const usage = values.usage
   const input = usage === undefined ? undefined : usage.uncachedInput + usage.cacheRead + usage.cacheWrite
   const hit = usage === undefined || input === undefined ? null : formatCacheHitPercent(usage.cacheRead, input)
   const speed = stats === undefined || stats.decodeMs <= 0 ? null : formatTokensPerSecond(stats.decodeTokens * 1000 / stats.decodeMs)
-  const model = selection === undefined ? '未提供' : `${selection.provider}/${selection.model}`
-  const effort = selection?.reasoningEffort ?? '未提供'
-  const cache = hit === null ? '未提供' : `${hit}%`
-  const throughput = speed === null ? '未提供' : `${speed} tok/s`
-  const compact = `Model: ${model} · Reasoning: ${effort}\nCache: ${cache} · Output: ${throughput}\nBalance: ${balanceText(balance)}`
-  const details = [compact, '', 'Whole session · provider-reported token usage',
-    `Input: ${input ?? '未提供'} · Output: ${usage?.output ?? '未提供'}`,
-    `Cache read: ${usage?.cacheRead ?? '未提供'} · Cache write: ${usage?.cacheWrite ?? '未提供'}`,
-    `Uncached input: ${usage?.uncachedInput ?? '未提供'}`,
-    `Turns: ${stats?.turns ?? '未提供'} · Steps: ${stats?.steps ?? '未提供'}`,
-    `Average first token: ${stats !== undefined && stats.ttftSteps > 0 ? `${Math.round(stats.ttftMs / stats.ttftSteps)} ms` : '未提供'}`,
-    'Balance is the signed-in DeepSeek account; configure providers and credentials in Web.',
+  const model = selection === undefined ? locale.text('Unavailable') : `${selection.provider}/${selection.model}`
+  const effort = selection?.reasoningEffort ?? locale.text('Unavailable')
+  const cache = hit === null ? locale.text('Unavailable') : `${hit}%`
+  const throughput = speed === null ? locale.text('Unavailable') : `${speed} tok/s`
+  const compact = `${locale.text('Model')}: ${model} · ${locale.text('Reasoning')}: ${effort}\n${locale.text('Cache')}: ${cache} · ${locale.text('Output')}: ${throughput}\n${locale.text('Balance')}: ${balanceText(balance, locale)}`
+  const details = [compact, '', locale.text('Whole session · provider-reported token usage'),
+    `${locale.text('Input')}: ${input ?? locale.text('Unavailable')} · ${locale.text('Output')}: ${usage?.output ?? locale.text('Unavailable')}`,
+    `${locale.text('Cache read')}: ${usage?.cacheRead ?? locale.text('Unavailable')} · ${locale.text('Cache write')}: ${usage?.cacheWrite ?? locale.text('Unavailable')}`,
+    `${locale.text('Uncached input')}: ${usage?.uncachedInput ?? locale.text('Unavailable')}`,
+    `${locale.text('Turns')}: ${stats?.turns ?? locale.text('Unavailable')} · ${locale.text('Steps')}: ${stats?.steps ?? locale.text('Unavailable')}`,
+    `${locale.text('Average first token')}: ${stats !== undefined && stats.ttftSteps > 0 ? `${Math.round(stats.ttftMs / stats.ttftSteps)} ms` : locale.text('Unavailable')}`,
+    locale.text('Balance is the signed-in DeepSeek account; configure providers and credentials in Web.'),
   ].join('\n')
   return { compact, details }
 }

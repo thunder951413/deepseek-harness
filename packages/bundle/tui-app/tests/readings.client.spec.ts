@@ -18,12 +18,12 @@ it('uses disjoint billing buckets and decode time, preserving mixed-currency wal
 })
 
 it('distinguishes absent usage, empty usage, wallet failure, and a genuine full cache hit', () => {
-  expect(sessionReadings({}, undefined, null).compact).toContain('Cache: 未提供 · Output: 未提供')
+  expect(sessionReadings({}, undefined, null).compact).toContain('Cache: Unavailable · Output: Unavailable')
   expect(balanceText({ status: 'failed' })).toContain('Query failed')
   expect(balanceText('loading')).toBe('Loading…')
-  expect(balanceText({ status: 'ready', wallets: [], bonusWallets: [] })).toBe('未提供')
+  expect(balanceText({ status: 'ready', wallets: [], bonusWallets: [] })).toBe('Unavailable')
   const usage = { uncachedInput: 0, cacheRead: 0, cacheWrite: 0, output: 0 }
-  expect(sessionReadings({ usage }, undefined, null).compact).toContain('Cache: 未提供')
+  expect(sessionReadings({ usage }, undefined, null).compact).toContain('Cache: Unavailable')
   expect(sessionReadings({ usage: { ...usage, cacheRead: 100 } }, undefined, null).compact).toContain('Cache: 100%')
   expect(sessionReadings({ usage: { ...usage, cacheRead: 999, uncachedInput: 1 } }, undefined, null).compact).toContain('Cache: 99.9%')
 })

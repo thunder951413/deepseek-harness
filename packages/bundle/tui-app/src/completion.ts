@@ -1,6 +1,8 @@
 /** Project-local path discovery and slash-command completion. */
 import { readdir, type Dirent } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { readdir as readEntries } from 'node:fs/promises'
+import { TerminalLocale } from './locale.ts'
+import { basename, dirname, posix, resolve } from 'node:path'
 import { convertPathToPattern, globby, isIgnoredByIgnoreFiles } from 'globby'
 import { CombinedAutocompleteProvider, fuzzyFilter, type AutocompleteProvider, type SlashCommand } from '@earendil-works/pi-tui'
 
@@ -15,6 +17,12 @@ export const terminalCommands: SlashCommand[] = [
   { name: 'cost', description: 'Show complete usage and balance (same as /stats)' },
   { name: 'web', description: 'Show the browser sign-in link' },
   { name: 'tools', description: 'Inspect tool arguments and output' },
+  ...[
+    ['queue', 'Manage pending messages'], ['steer', 'Send an instruction at the next model step'],
+    ['search', 'Search conversation content'], ['rename', 'Rename conversation'], ['fork', 'Fork from the latest completed turn'],
+    ['export', 'Export the full Session ZIP'], ['history', 'Load older history'], ['language', 'Choose interface language'],
+    ['layout', 'Choose status density'], ['reconnect', 'Reconnect to the Harness'],
+  ].map(([name = '', description = '']) => ({ name, description })),
   { name: 'help', description: 'Show commands and keyboard shortcuts' },
   { name: 'exit', description: 'Close this terminal and its Web service' },
 ]
@@ -33,17 +41,20 @@ export class ProjectCompletion implements AutocompleteProvider {
    * @param depth - maximum project traversal depth.
    * @param limit - maximum indexed file paths.
    * @param report - visible failure or partial-index reporter; failed discovery is retryable.
+   * @param state - transient index/search progress, separate from errors.
+   * @param locale - terminal interface language.
    */
   constructor(private directory: string, private readonly depth: number, private readonly limit: number,
-    private readonly report: (message: string) => void) {
-    this.provider = new CombinedAutocompleteProvider(terminalCommands, directory)
+    private readonly report: (message: string) => void, private readonly state?: (message: string) => void,
+    private readonly locale = new TerminalLocale()) {
+    this.provider = new CombinedAutocompleteProvider(terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description ?? '') })), directory)
   }
 
   /** Set the selected Session's directory and discard its old file index.
    * @param directory - current Session directory. */
   setDirectory(directory: string): void {
     this.directory = directory
-    this.provider = new CombinedAutocompleteProvider(terminalCommands, directory)
+    this.provider = new CombinedAutocompleteProvider(terminalCommands.map(command => ({ ...command, description: this.locale.description(command.description ?? '') })), directory)
     this.refresh()
   }
 
@@ -51,7 +62,7 @@ export class ProjectCompletion implements AutocompleteProvider {
   refresh(): void { this.files = undefined; this.generation++ }
 
   /**
-   * Complete local commands or insert a quoted project path after `@`; hidden directories are not scanned.
+   * Complete local commands or insert a quoted project path after `@`; hidden directories are read only when explicitly named.
    * Unreadable child directories are skipped with a partial-results notice; other discovery failures report no suggestions.
    * @param args - editor lines, logical cursor position, and cancellation or explicit-completion state.
    * @returns suggestions, or null after cancellation or a reported discovery failure.
@@ -105,17 +116,24 @@ export class ProjectCompletion implements AutocompleteProvider {
         const suggestions = await this.provider.getSuggestions(lines, cursorLine, cursorCol, options)
         return this.cancelled(options.signal, generation) ? null : suggestions
       }
-      const files = await (this.files ??= this.discover(options.signal, generation))
-      if (this.cancelled(options.signal, generation)) return null
       const query = prefix.replace(/^@"?/u, '')
+      this.state?.(this.locale.text('Indexing project files…'))
+      const explicit = query.split('/').some(part => part.startsWith('.') && part !== '.' && part !== '..')
+      const parent = query.endsWith('/') ? query : dirname(query)
+      const files = explicit ? (await readEntries(resolve(this.directory, parent), { withFileTypes: true }))
+        .map(entry => posix.join(parent, entry.name) + (entry.isDirectory() ? '/' : '')).sort().slice(0, this.limit)
+        : await (this.files ??= this.discover(options.signal, generation))
+      if (this.cancelled(options.signal, generation)) return null
       const items = fuzzyFilter(files, query, path => path).map(path => ({
         value: /\s|["\u0000-\u001f\u007f-\u009f]/u.test(path) ? `@${JSON.stringify(path)}` : `@${path}`,
         label: /[\u0000-\u001f\u007f-\u009f]/u.test(path) ? JSON.stringify(path) : path,
       }))
+      this.state?.(items.length === 0 ? this.locale.text('No matching project files') : '')
       return items.length === 0 ? null : { items, prefix }
     } catch (error) {
       if (!this.cancelled(options.signal, generation)) {
         this.files = undefined
+        this.state?.('')
         this.report(`File completion unavailable: ${error instanceof Error ? error.message : String(error)}. Type @ to retry.`)
       }
       return null

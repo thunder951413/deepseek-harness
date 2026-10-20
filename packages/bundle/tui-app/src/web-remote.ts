@@ -16,6 +16,7 @@ import workspaceInfo from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import accountInfo from '@deepseek-ai/dsh-api-account-controller/remote'
 import questionInfo from '@deepseek-ai/dsh-user-questions/remote'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -23,11 +24,12 @@ import type { SessionId as WireSessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-user-approval/types'
 import type {} from '@deepseek-ai/dsh-user-questions/types'
 import {
-  SessionId, Unsupported, type Capabilities, type HarnessPort, type ModelChoice, type PortApprovalOutcome,
+  SessionId, Unsupported, type PendingMessageId, type Capabilities, type HarnessPort, type ModelChoice, type PortApprovalOutcome,
   type PortAnswer, type PortQuestion, type PortQuestionRequest, type PortApproval,
 } from './port.ts'
 import {
-  readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings, readSessionList, readWorkspaceId,
+  readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings, readSessionList,
+  readWorkspaceId, readQueue, readSearch,
 } from './readers.ts'
 import { approvalCallText } from './wire-transcript.ts'
 
@@ -62,11 +64,13 @@ export class WebRemotePort implements HarnessPort {
   private readonly client = new Context()
   private readonly scopes = new WeakMap<object, WireSessionId>()
   private readonly features: { -readonly [Key in keyof Capabilities]: boolean } =
-    { models: true, readings: true, balance: true, questions: true }
+    { models: true, readings: true, balance: true, questions: true, search: true, management: true, queue: true, export: true }
   private connection: ConnectionHandle | undefined
   private startupSignal: AbortSignal | undefined
+  private readonly lifetime = new AbortController()
+  private readonly authentication = new Set<Promise<void>>()
 
-  private constructor(readonly url: string) {}
+  private constructor(readonly url: string, private cookie: string) {}
 
   /** @returns optional features the Harness has answered so far. */
   get capabilities(): Capabilities { return { ...this.features } }
@@ -105,19 +109,39 @@ export class WebRemotePort implements HarnessPort {
     if (response.status !== 302) throw new Error(`Harness authentication failed (${response.status}); use its current launch URL`)
     const cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
     if (cookie === '') throw new Error('Harness did not issue an API credential')
-    const port = new WebRemotePort(url)
+    const port = new WebRemotePort(url, cookie)
     try {
       port.startupSignal = signal
       const base = new URL(source)
       base.search = ''
+      let initialCredential = true
       installConnection(port.client, { interactions: 'answer', transport: {
         streamBaseUrl: base.href,
         fetch: (input, init) => fetch(new URL(String(input).replace(/^\//u, ''), base), {
           ...init, signal: port.startupSignal === undefined ? (init.signal ?? null) : AbortSignal.any([port.startupSignal,
             ...init.signal == null ? [] : [init.signal]]),
-          headers: { ...Object.fromEntries(new Headers(init.headers)), cookie },
+          headers: { ...Object.fromEntries(new Headers(init.headers)), cookie: port.cookie },
         }),
-        createWebSocket: socket => new WebSocket(socket, { headers: { cookie } }),
+        createWebSocket: (socket) => {
+          const first = initialCredential
+          initialCredential = false
+          return new WebSocket(socket, { finishRequest: (request) => {
+            if (first) { request.setHeader('cookie', port.cookie); request.end(); return }
+            // API credentials name a Peer released when its lifecycle socket closes.
+            const task = (async () => {
+              const response = await fetch(connect, { redirect: 'manual', signal: port.lifetime.signal })
+              if (response.status !== 302) throw new Error(`Harness reauthentication failed (${response.status}); restart with its current launch URL`)
+              const cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
+              if (cookie === '') throw new Error('Harness did not renew its API credential')
+              if (request.destroyed || port.lifetime.signal.aborted) return
+              port.cookie = cookie
+              request.setHeader('cookie', cookie)
+              request.end()
+            })().catch((error: unknown) => { request.destroy(error instanceof Error ? error : new Error('Harness reauthentication failed')) })
+            port.authentication.add(task)
+            void task.finally(() => { port.authentication.delete(task) })
+          } })
+        },
       } })
       port.connection = port.client.get('connection') as ConnectionHandle
       await port.client.plugin(Registry)
@@ -187,12 +211,59 @@ export class WebRemotePort implements HarnessPort {
     }
   }
 
-  async prompt(sessionId: SessionId, text: string, signal: AbortSignal): Promise<void> {
+  async prompt(sessionId: SessionId, text: string, signal: AbortSignal, mode: 'queue' | 'steer' = 'queue'): Promise<void> {
     this.required('session/prompt', await this.remote().session.prompt({
-      requestId: brandString<SessionRequestId>(randomUUID()), sessionId: wire(sessionId), mode: 'queue',
+      requestId: brandString<SessionRequestId>(randomUUID()), sessionId: wire(sessionId), mode,
       content: [{ type: 'text', text }], clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     }, signal))
   }
+
+  async search(query: string, signal: AbortSignal) {
+    return readSearch(this.optional('search', 'session/search', await this.remote().session.search({ query }, signal)))
+  }
+
+  async rename(sessionId: SessionId, title: string): Promise<void> {
+    this.optional('management', 'session/rename', await this.remote().session.rename({ sessionId: wire(sessionId), title }))
+  }
+
+  async fork(sessionId: SessionId): Promise<SessionId> {
+    const id = readCreated(this.optional('management', 'session/fork', await this.remote().session.fork({ sessionId: wire(sessionId) })))
+    if (id === undefined) throw new Error('The fork response has no conversation identity')
+    return id
+  }
+
+  async queue(sessionId: SessionId, signal: AbortSignal) {
+    const items = readQueue(this.optional('queue', 'session/projections', await this.remote().session.projections({ sessionId: wire(sessionId) }, signal)))
+    if (items === undefined) { this.features.queue = false; throw new Unsupported('pending messages') }
+    return items
+  }
+
+  async updateQueue(sessionId: SessionId, id: PendingMessageId, action: { kind: 'remove' | 'steer' } | { kind: 'edit'; text: string }): Promise<void> {
+    this.optional('queue', 'session/updateQueue', await this.remote().session.updateQueue({
+      sessionId: wire(sessionId), itemId: brandString<MessageId>(id),
+      action: action.kind === 'edit' ? { kind: 'edit', content: [{ type: 'text', text: action.text }] } : action,
+    }))
+  }
+
+  async *exportLog(sessionId: SessionId, signal: AbortSignal): AsyncGenerator<Uint8Array> {
+    const url = new URL('api/session.export', this.url)
+    url.search = ''
+    url.searchParams.set('sessionId', sessionId)
+    url.searchParams.set('includeDescendants', 'false')
+    const response = await fetch(url, { signal, headers: { cookie: this.cookie }, redirect: 'error' })
+    if (response.status === 404) { this.features.export = false; throw new Unsupported('Session export') }
+    if (!response.ok || response.body === null) throw new Error(`Session export failed: HTTP ${response.status}`)
+    if (!response.headers.get('content-type')?.includes('application/zip')) throw new Error('Session export did not return a ZIP archive')
+    yield* response.body
+  }
+
+  onConnection(listener: (state: 'connected' | 'disconnected' | 'connecting') => void): () => void {
+    const connection = this.connection
+    if (connection === undefined) throw new Error('Missing terminal transport')
+    return connection.generation.subscribe(() => { listener(connection.generation.getSnapshot() === undefined ? 'disconnected' : 'connected') })
+  }
+
+  reconnect(): void { this.connection?.reconnect() }
 
   async cancel(sessionId: SessionId): Promise<void> {
     this.required('session/cancel', await this.remote().session.cancel({ sessionId: wire(sessionId) }))
@@ -272,6 +343,8 @@ export class WebRemotePort implements HarnessPort {
   }
 
   async dispose(): Promise<void> {
+    this.lifetime.abort()
     await this.client.fiber.dispose()
+    await Promise.allSettled(this.authentication)
   }
 }

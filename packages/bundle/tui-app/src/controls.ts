@@ -1,4 +1,5 @@
 /** Model selection and live account/session readings owned by one terminal lifetime. */
+import { TerminalLocale } from './locale.ts'
 import { Unsupported, type HarnessPort, type ModelCatalogView, type ModelChoice, type Readings, type SessionId } from './port.ts'
 import { sessionReadings, type BalanceReading } from './readings.ts'
 import type { TerminalUi } from './ui.ts'
@@ -11,6 +12,7 @@ export class TerminalControls {
   private balance: BalanceReading = null
   private balanceRequest: Promise<void> | undefined
   private projectionGeneration = 0
+  private queueGeneration = 0
   private projectionError: string | undefined
 
   /**
@@ -18,9 +20,10 @@ export class TerminalControls {
    * @param ui - terminal owned by the application.
    * @param signal - application cancellation.
    * @param version - terminal package version reported with balance queries.
+   * @param locale - terminal interface language.
    */
   constructor(private readonly ctx: Pick<HarnessPort,
-    'readings' | 'watchReadings' | 'modelCatalog' | 'selectModel' | 'balance' | 'watchAccount'>, private readonly ui: Pick<TerminalUi, 'metrics' | 'choose' | 'accepted'>, private readonly signal: AbortSignal, private readonly version: string) {
+    'queue' | 'readings' | 'watchReadings' | 'modelCatalog' | 'selectModel' | 'balance' | 'watchAccount'>, private readonly ui: Pick<TerminalUi, 'queueCount' | 'metrics' | 'choose' | 'view' | 'accepted'>, private readonly signal: AbortSignal, private readonly version: string, private readonly locale = new TerminalLocale()) {
     this.render()
   }
 
@@ -36,7 +39,7 @@ export class TerminalControls {
 
   private render(): void {
     if (this.signal.aborted) return
-    const reading = sessionReadings(this.values, this.current(), this.balance)
+    const reading = sessionReadings(this.values, this.current(), this.balance, this.locale)
     this.ui.metrics(this.projectionError === undefined ? reading.compact : `${reading.compact}\n${this.projectionError}`)
   }
 
@@ -50,7 +53,7 @@ export class TerminalControls {
     this.values = {}
     this.projectionError = undefined
     this.render()
-    await this.refreshProjections()
+    await Promise.all([this.refreshProjections(), this.refreshQueue()])
   }
 
   /**
@@ -72,6 +75,22 @@ export class TerminalControls {
     await this.refreshProjections()
   }
 
+  private async refreshQueue(): Promise<void> {
+    const id = this.selected
+    if (id === undefined) return
+    const generation = ++this.queueGeneration
+    this.ui.queueCount(undefined)
+    try {
+      const messages = await this.ctx.queue(id, this.signal)
+      if (generation === this.queueGeneration && id === this.selected && !this.cancelled()) this.ui.queueCount(messages.length)
+    } catch (error) {
+      // Queue controls report actionable failures when opened; stale counts remain hidden.
+      if (!(error instanceof Unsupported) && !this.cancelled() && id === this.selected && generation === this.queueGeneration) {
+        this.ui.queueCount(undefined)
+      }
+    }
+  }
+
   private async refreshProjections(): Promise<void> {
     const sessionId = this.selected
     if (sessionId === undefined || this.cancelled()) return
@@ -80,12 +99,12 @@ export class TerminalControls {
       const result = await this.ctx.readings(sessionId, this.signal)
       if (generation !== this.projectionGeneration || sessionId !== this.selected || this.cancelled()) return
       this.values = result?.kind === 'values' ? result.readings : {}
-      this.projectionError = result?.kind === 'migration-required' ? 'Statistics need Session migration; send a message to resume.' : undefined
+      this.projectionError = result?.kind === 'migration-required' ? this.locale.text('Statistics need Session migration; send a message to resume.') : undefined
     } catch (error) {
       // A failed read invalidates displayed totals; /stats performs a fresh read.
       if (generation !== this.projectionGeneration || sessionId !== this.selected || this.cancelled()) return
       this.values = {}
-      this.projectionError = error instanceof Unsupported ? undefined : 'Statistics unavailable · /stats to retry'
+      this.projectionError = error instanceof Unsupported ? undefined : this.locale.text('Statistics unavailable · /stats to retry')
     }
     this.render()
   }
@@ -97,13 +116,14 @@ export class TerminalControls {
   async watchSessions(): Promise<void> {
     try {
       for await (const change of this.ctx.watchReadings(this.signal)) {
+        if (change.sessionId === undefined || (change.sessionId === this.selected && change.key === 'inbox')) await this.refreshQueue()
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key !== undefined
           && ['modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
       }
     } catch (error) {
       if (!this.signal.aborted) {
         this.values = {}
-        this.projectionError = 'Live statistics disconnected · restart tui to reconnect'
+        this.projectionError = this.locale.text('Live statistics disconnected · /reconnect to retry')
         this.render()
         throw error
       }
@@ -173,8 +193,8 @@ export class TerminalControls {
     this.ui.accepted()
     if (command === '/stats') {
       await Promise.all([this.refreshProjections(), this.refreshBalance()])
-      const reading = sessionReadings(this.values, this.current(), this.balance)
-      await this.ui.choose(`${reading.details}\n${this.projectionError ?? ''}`, ['Close'], this.signal)
+      const reading = sessionReadings(this.values, this.current(), this.balance, this.locale)
+      await this.ui.view(this.locale.text('Statistics'), `${reading.details}\n${this.projectionError ?? ''}`, this.signal)
       return true
     }
     await this.loadModels()
@@ -186,7 +206,7 @@ export class TerminalControls {
       const models = catalog.groups.flatMap(group => group.models.map(model => ({ group, model })))
       const failures = catalog.failures.map(failure => `${failure.name}: ${failure.message}`).join('\n')
       if (models.length === 0) throw new Error(`No configured models; configure a provider in Web. ${failures}`)
-      const index = await this.ui.choose(`Select model · applies to the next model request\n${failures}`,
+      const index = await this.ui.choose(`${this.locale.text('Select model · applies to the next model request')}\n${failures}`,
         models.map(({ group, model }) => `${group.name} / ${model.name} (${model.id})`), this.signal)
       const picked = index === undefined ? undefined : models[index]
       if (picked === undefined) return true
@@ -199,10 +219,10 @@ export class TerminalControls {
       if (model === undefined) throw new Error('Selected model is unavailable; choose another with /model')
       const efforts = model.efforts
       if (efforts.length === 0) {
-        await this.ui.choose('This model does not offer selectable reasoning levels.', ['Close'], this.signal)
+        await this.ui.choose(this.locale.text('This model does not offer selectable reasoning levels.'), [this.locale.text('Close')], this.signal)
         return true
       }
-      const index = await this.ui.choose(`Reasoning · ${model.name} · current: ${current.reasoningEffort ?? model.defaultEffort ?? '未提供'}`,
+      const index = await this.ui.choose(this.locale.text('Reasoning · {model} · current: {effort}', { model: model.name, effort: current.reasoningEffort ?? model.defaultEffort ?? this.locale.text('Unavailable') }),
         efforts.map(effort => `${effort.name}${effort.description === undefined ? '' : ` — ${effort.description}`}`), this.signal)
       const effort = index === undefined ? undefined : efforts[index]
       if (effort === undefined) return true

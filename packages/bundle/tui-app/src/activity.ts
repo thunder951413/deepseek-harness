@@ -2,6 +2,7 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
 import { color } from './theme.ts'
 import type { TerminalActivity, ToolCall } from './transcript.ts'
+import { TerminalLocale } from './locale.ts'
 
 /** Rows reserved for the latest call's details, so the panel never changes height during a turn. */
 export const DETAIL_ROWS = 3
@@ -35,15 +36,17 @@ function detailRows(call: ToolCall, width: number): string[] {
  * @param activity - tool calls made since the turn started and the latest one.
  * @param seconds - whole seconds since the turn started.
  * @param width - terminal width in columns.
- * @returns one status line before the first tool call; afterwards the status line, the latest call's
- * title, and a fixed number of detail rows, every row at most `width` columns wide.
+ * @param locale - terminal language; omitted selects English.
+ * @returns a fixed-height status and latest-call panel, every row at most `width` columns wide.
  */
-export function renderActivity(activity: TerminalActivity, seconds: number, width: number): string[] {
+export function renderActivity(activity: TerminalActivity, seconds: number, width: number, locale = new TerminalLocale()): string[] {
   const counts = activity.calls === 0 ? ''
     : ` · ${String(activity.calls)} tool call${activity.calls === 1 ? '' : 's'}${activity.failed > 0 ? ` · ${String(activity.failed)} failed` : ''}`
-  const status = truncateToWidth(`✻ Working… ${String(seconds)}s${counts} · Ctrl-C to stop`, width)
+  const phase = activity.phase ?? 'Working…'
+  const status = truncateToWidth(`✻ ${locale.text(phase)} ${String(seconds)}s${locale.language === 'en' ? counts
+    : activity.calls === 0 ? '' : ` · ${locale.text('{count} tool calls', { count: activity.calls })}${activity.failed === 0 ? '' : ` · ${locale.text('{count} failed', { count: activity.failed })}`}`} · ${locale.text('Ctrl-C to stop')}`, width)
   const call = activity.latest
-  if (call === undefined) return [status]
+  if (call === undefined) return [status, ...Array.from({ length: 1 + DETAIL_ROWS }, () => '')]
   const mark = call.state === 'failed' ? color.red('●') : call.state === 'running' ? color.yellow('●') : color.green('●')
   return [status, truncateToWidth(`${mark} ${color.bold(call.title)}`, width), ...detailRows(call, width).map(row => truncateToWidth(row, width))]
 }

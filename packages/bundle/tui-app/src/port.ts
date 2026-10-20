@@ -26,6 +26,21 @@ export interface SessionSummary {
   readonly cwd?: string
 }
 
+/** Opaque pending-message identity received from the Host. */
+export type PendingMessageId = string & { readonly __pendingMessageId: never }
+
+/** Brand an identity read from the pending-message projection.
+ * @param value - wire identity.
+ * @returns branded pending-message identity. */
+export function PendingMessageId(value: string): PendingMessageId { return value as PendingMessageId }
+
+/** One pending human-authored text message, safe for queue editing. */
+export interface PendingMessage {
+  readonly id: PendingMessageId
+  readonly text: string
+  readonly target: 'next-turn' | 'next-step'
+}
+
 /** One durable event from a Session journal. */
 export interface JournalEvent {
   readonly type: string
@@ -44,6 +59,7 @@ export type FollowFrame =
     readonly kind: 'snapshot'
     readonly cwd?: string
     readonly events: readonly JournalEvent[]
+    readonly hasMore?: boolean
     /** Compact records of an unfinished assistant attempt. */
     readonly active?: readonly Json[]
   }
@@ -160,6 +176,10 @@ export interface PortQuestionRequest {
 
 /** Optional features, set once at connection from what the Harness answered. */
 export interface Capabilities {
+  readonly search: boolean
+  readonly management: boolean
+  readonly queue: boolean
+  readonly export: boolean
   /** Model catalog and selection. */
   readonly models: boolean
   /** Whole-conversation usage readings and live changes. */
@@ -172,6 +192,42 @@ export interface Capabilities {
 
 /** Connected Harness operations. Optional operations resolve to undefined or throw `Unsupported`. */
 export interface HarnessPort {
+  /** Search stored conversation content.
+   * @param query - nonempty literal query.
+   * @param signal - cancellation.
+   * @returns matching identities and excerpts, plus whether more matches exist. */
+  search(query: string, signal: AbortSignal): Promise<{ items: readonly { id: SessionId; snippet: string }[]; hasMore: boolean }>
+  /** Rename a conversation.
+   * @param sessionId - conversation.
+   * @param title - nonempty display title.
+   * @returns after the server commits the title. */
+  rename(sessionId: SessionId, title: string): Promise<void>
+  /** Fork the latest completed turn.
+   * @param sessionId - source conversation.
+   * @returns newly created conversation identity. */
+  fork(sessionId: SessionId): Promise<SessionId>
+  /** Read editable pending human messages.
+   * @param sessionId - conversation.
+   * @param signal - cancellation.
+   * @returns current queue; throws when the projection is unavailable. */
+  queue(sessionId: SessionId, signal: AbortSignal): Promise<PendingMessage[]>
+  /** Mutate a still-pending message; the Host rejects messages already claimed.
+   * @param sessionId - conversation.
+   * @param id - pending message identity.
+   * @param action - removal, next-step steering, or replacement text.
+   * @returns after the mutation commits. */
+  updateQueue(sessionId: SessionId, id: PendingMessageId, action: { kind: 'remove' | 'steer' } | { kind: 'edit'; text: string }): Promise<void>
+  /** Download the complete persisted Session ZIP.
+   * @param sessionId - conversation.
+   * @param signal - cancellation.
+   * @returns authenticated archive bytes; the launch credential is never added. */
+  exportLog(sessionId: SessionId, signal: AbortSignal): AsyncIterable<Uint8Array>
+  /** Observe transport state and established generation changes.
+   * @param listener - receives current connection state.
+   * @returns disposer for the subscription. */
+  onConnection(listener: (state: 'connected' | 'disconnected' | 'connecting') => void): () => void
+  /** Restart the transport's existing recovery loop. */
+  reconnect(): void
   /** Browser launch URL for the connected Harness. */
   readonly url: string
   /** Optional features the Harness answered during connection. */
@@ -201,8 +257,9 @@ export interface HarnessPort {
    * @param sessionId - conversation.
    * @param text - message text.
    * @param signal - cancellation of the admission request.
+   * @param mode - queue for a later turn; steer applies at the next model step. Omission queues.
    */
-  prompt(sessionId: SessionId, text: string, signal: AbortSignal): Promise<void>
+  prompt(sessionId: SessionId, text: string, signal: AbortSignal, mode?: 'queue' | 'steer'): Promise<void>
   /**
    * Stop generation in a conversation.
    * @param sessionId - conversation.

@@ -68,18 +68,23 @@ export class TerminalTranscript {
   private turnFailed = 0
   private latest: ToolCall | undefined
   private todoEntry: TerminalEntry | undefined
+  private truncated = false
+  private phase: NonNullable<TerminalView['activity']['phase']> = 'Waiting for model'
 
-  /** @param maxCharacters - maximum retained text and tool-detail characters. */
+  /** @param maxCharacters - maximum retained text and tool-detail characters.
+   */
   constructor(private readonly maxCharacters: number) {}
 
   /** Reset the display projection when changing conversations. */
   reset(): void {
+    this.truncated = false; this.phase = 'Waiting for model'
     this.entries = []; this.live = ''; this.working = false; this.characters = 0
     this.hiddenCalls.clear(); this.todoEntry = undefined
     this.group = undefined; this.turnCalls = 0; this.turnFailed = 0; this.latest = undefined
   }
 
   private fit(draft: Draft): Draft {
+    if (draft.text.length + (draft.details?.length ?? 0) > this.maxCharacters) this.truncated = true
     const body = terminalText(draft.text).slice(0, this.maxCharacters)
     const details = draft.details === undefined ? undefined
       : terminalText(draft.details).slice(0, Math.max(0, this.maxCharacters - body.length))
@@ -89,10 +94,14 @@ export class TerminalTranscript {
 
   /** Clip call details to the budget and drop the oldest calls until the group fits; the latest call always stays. */
   private fitCalls(calls: readonly ToolCall[], used: number): ToolCall[] {
-    const fitted = calls.map(call => ({ ...call,
-      details: terminalText(call.details).slice(0, Math.max(0, this.maxCharacters - used - call.title.length)) }))
+    const fitted = calls.map((call) => {
+      const details = terminalText(call.details).slice(0, Math.max(0, this.maxCharacters - used - call.title.length))
+      const truncated = call.truncated === true || details.length < terminalText(call.details).length
+      if (truncated) this.truncated = true
+      return { ...call, details, ...truncated ? { truncated: true } : {} }
+    })
     const total = (): number => fitted.reduce((sum, call) => sum + call.title.length + call.details.length, used)
-    while (fitted.length > 1 && total() > this.maxCharacters) fitted.shift()
+    while (fitted.length > 1 && total() > this.maxCharacters) { fitted.shift(); this.truncated = true }
     return fitted
   }
 
@@ -126,6 +135,7 @@ export class TerminalTranscript {
 
   private trim(): void {
     while (this.characters > this.maxCharacters && this.entries.length > 1) {
+      this.truncated = true
       for (const removed of this.entries.splice(0, 1)) this.characters -= size(removed)
     }
   }
@@ -138,7 +148,11 @@ export class TerminalTranscript {
     const data = record(event.data)
     let shown: Draft | undefined
     switch (event.type) {
+      case 'step/start':
+        this.phase = 'Waiting for model'
+        break
       case 'turn/start':
+        this.phase = 'Waiting for model'
         this.working = true; this.todoEntry = undefined; this.group = undefined
         this.turnCalls = 0; this.turnFailed = 0; this.latest = undefined
         break
@@ -169,16 +183,18 @@ export class TerminalTranscript {
         const name = text(data.name)
         const callId = text(data.callId)
         if (name === 'todo_write') { this.hiddenCalls.add(callId); break }
-        const args = text(data.arguments)
-        const call: ToolCall = { id: callId, title: toolTitle(name, args), state: 'running', detail: toolDetail(name, args), details: args }
+        const args = terminalText(text(data.arguments))
+        this.phase = 'Running tool'
+        const call: ToolCall = { id: callId, title: toolTitle(name, args), state: 'running', detail: toolDetail(name, args), details: args, argumentLength: args.length }
         this.turnCalls += 1
-        this.latest = call
         const open = this.group
         const before = open?.group ?? { calls: [], count: 0, failed: 0 }
+        if (before.calls.length >= GROUP_CALLS) this.truncated = true
         const draft = groupDraft({ calls: [...before.calls, call], count: before.count + 1, failed: before.failed })
         const next = open === undefined ? undefined : this.replace(open, draft)
-        if (next === undefined) this.append(event, draft)
+        if (next === undefined) this.group = this.append(event, draft)
         else this.group = next
+        this.latest = this.group.group?.calls.at(-1)
         break
       }
       case 'tool/result': {
@@ -190,10 +206,10 @@ export class TerminalTranscript {
         const failed = message.isError === true
         const result = content(message.content)
         const calls = owner.group.calls.map((call): ToolCall => call.id !== callId ? call
-          : { ...call, state: failed ? 'failed' : 'done', details: `${call.details}\n\n${result}`.trim() })
-        if (this.latest?.id === callId) this.latest = calls.find(call => call.id === callId)
+          : { ...call, state: failed ? 'failed' : 'done', details: `${call.details}\n\n${result}` })
         if (failed) this.turnFailed += 1
         const next = this.replace(owner.entry, groupDraft({ ...owner.group, calls, failed: owner.group.failed + (failed ? 1 : 0) }))
+        if (this.latest?.id === callId) this.latest = next?.group?.calls.find(call => call.id === callId)
         if (this.group === owner.entry && next !== undefined) this.group = next
         break
       }
@@ -220,10 +236,12 @@ export class TerminalTranscript {
    */
   restore(stream: readonly Json[]): void {
     this.working = true
-    this.live = stream.map((item) => {
+    const restored = stream.map((item) => {
       const run = record(item)
       return run.type === 'text-chunks' ? list(run.texts).map(text).join('') : ''
-    }).join('').slice(-this.maxCharacters)
+    }).join('')
+    this.truncated ||= restored.length > this.maxCharacters
+    this.live = restored.slice(-this.maxCharacters)
   }
 
   /**
@@ -231,11 +249,15 @@ export class TerminalTranscript {
    * @param frame - current attempt frame.
    */
   stream(frame: StreamFrame): void {
-    if (frame.type === 'start') this.working = true
+    if (frame.type === 'start') { this.working = true; this.phase = 'Waiting for model' }
     if (frame.type === 'start' || frame.type === 'end') this.live = ''
     if (frame.type === 'chunk') {
       const chunk = record(frame.chunk)
-      if (chunk.type === 'text-delta') this.live = (this.live + text(chunk.text)).slice(-this.maxCharacters)
+      if (chunk.type === 'text-delta') {
+        this.phase = 'Receiving response'
+        if (this.live.length + text(chunk.text).length > this.maxCharacters) this.truncated = true
+        this.live = (this.live + text(chunk.text)).slice(-this.maxCharacters)
+      }
     }
   }
 
@@ -243,6 +265,8 @@ export class TerminalTranscript {
    * @returns settled blocks and sanitized unfinished text. */
   view(): TerminalView {
     return { entries: this.entries, live: terminalText(this.live), working: this.working,
-      activity: { calls: this.turnCalls, failed: this.turnFailed, ...this.latest === undefined ? {} : { latest: this.latest } } }
+      ...this.truncated ? { truncated: true } : {},
+      activity: { phase: this.phase, calls: this.turnCalls, failed: this.turnFailed,
+        ...this.latest === undefined ? {} : { latest: this.latest } } }
   }
 }

@@ -4259,13 +4259,17 @@ export type ToolPresentationMode = 'native' | 'ptc'
 ## `@deepseek-ai/dsh-tui-app`
 
 - `inject`: `tuiStartup`
-- `source`: [`packages/bundle/tui-app/src/index.ts:24`](../packages/bundle/tui-app/src/index.ts)
+- `source`: [`packages/bundle/tui-app/src/index.ts:26`](../packages/bundle/tui-app/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-specific terminal history bounds. */
 export interface Config {
   /** Existing conversation selected by the invocation. */
   session?: string
+  /** Interface language. */
+  language: 'en' | 'zh'
+  /** Status density. */
+  statusLayout: 'auto' | 'compact' | 'detailed'
   /** Existing Host launch URL; omission starts an owned Web process. */
   connect?: string
   /** Stock profile used for the owned backend(). */

@@ -6,9 +6,9 @@
  */
 import type {
   Balance, CatalogModel, FollowFrame, Json, JournalEvent, ModelCatalogView, ModelChoice, Readings, ReadingsChange,
-  ReadingsResult, SessionSummary, StreamFrame, Wallet,
+  ReadingsResult, SessionSummary, StreamFrame, Wallet, PendingMessage,
 } from './port.ts'
-import { SessionId } from './port.ts'
+import { SessionId, PendingMessageId } from './port.ts'
 
 type Dict = { readonly [key: string]: unknown }
 
@@ -96,7 +96,7 @@ export function readFollowFrame(value: unknown): FollowFrame | undefined {
     const cwd = str(dict(frame.header).cwd)
     const events = list(frame.records).flatMap(record => readEvent(dict(record).event) ?? [])
     const active = dict(dict(frame.assistantStream).activeAttempt).stream
-    return { kind: 'snapshot', events, ...cwd === undefined ? {} : { cwd },
+    return { kind: 'snapshot', events, ...frame.hasMore === true ? { hasMore: true } : {}, ...cwd === undefined ? {} : { cwd },
       ...Array.isArray(active) ? { active: active.map(json) } : {} }
   }
   if (frame.type === 'event') {
@@ -108,6 +108,34 @@ export function readFollowFrame(value: unknown): FollowFrame | undefined {
     return stream === undefined ? undefined : { kind: 'stream', frame: stream }
   }
   return undefined
+}
+
+/** Read editable human text messages from a projection response.
+ * @param value - untrusted session/projections value.
+ * @returns pending messages, or undefined when no inbox is available. */
+export function readQueue(value: unknown): PendingMessage[] | undefined {
+  const inbox = dict(dict(value).values).inbox
+  if (inbox === undefined || inbox === null) return undefined
+  return (['next-turn', 'next-step'] as const).flatMap(target => list(dict(inbox)[target]).flatMap((item) => {
+    const message = dict(item)
+    const id = str(message.id)
+    const blocks = list(message.content)
+    if (id === undefined || dict(message.source).kind !== 'user' || blocks.some(block => dict(block).type !== 'text')) return []
+    return [{ id: PendingMessageId(id), target, text: blocks.map(block => str(dict(block).text) ?? '').join('\n') }]
+  }))
+}
+
+/** Read content-search matches without trusting backend display text.
+ * @param value - session/search response.
+ * @returns identities, snippets, and truncation indicator. */
+export function readSearch(value: unknown): { items: { id: SessionId; snippet: string }[]; hasMore: boolean } {
+  const result = dict(value)
+  if (!Array.isArray(result.items)) throw new Error('Invalid conversation search response')
+  return { items: result.items.flatMap((item) => {
+    const row = dict(item)
+    const id = str(row.sessionId)
+    return id === undefined ? [] : [{ id: SessionId(id), snippet: str(row.snippet) ?? '' }]
+  }), hasMore: result.hasMore === true }
 }
 
 function readChoice(value: unknown): ModelChoice | undefined {

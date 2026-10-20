@@ -22,6 +22,10 @@ export interface ToolCall {
   readonly detail: readonly string[]
   /** Full arguments and output, shown on demand. */
   readonly details: string
+  /** Character count of the sanitized arguments at the start of details. */
+  readonly argumentLength?: number
+  /** Retained details omit part of the original call. */
+  readonly truncated?: boolean
 }
 
 /** Consecutive tool calls shown as one block. */
@@ -50,6 +54,8 @@ export interface TerminalEntry {
 
 /** What the model is doing now, for the fixed activity panel. */
 export interface TerminalActivity {
+  /** Event-derived work phase; omission means no finer status is available. */
+  readonly phase?: 'Waiting for model' | 'Receiving response' | 'Running tool' | 'Waiting for approval' | 'Waiting for answer'
   /** Tool calls made since the turn started. */
   readonly calls: number
   readonly failed: number
@@ -59,6 +65,8 @@ export interface TerminalActivity {
 
 /** Recent settled blocks and the unfinished assistant text. */
 export interface TerminalView {
+  /** Earlier history or tool output was omitted from this view. */
+  readonly truncated?: boolean
   readonly entries: readonly TerminalEntry[]
   readonly live: string
   readonly working: boolean

@@ -2,14 +2,15 @@
 import { stripVTControlCharacters } from 'node:util'
 import { visibleWidth } from '@earendil-works/pi-tui'
 import { expect, it } from 'vitest'
+import { color } from '../src/theme.ts'
 import { DETAIL_ROWS, renderActivity } from '../src/activity.ts'
 import type { ToolCall } from '../src/transcript.ts'
 
 const plain = (rows: string[]): string[] => rows.map(row => stripVTControlCharacters(row))
 const call = (state: ToolCall['state'], detail: string[], title = 'Bash(ls)'): ToolCall => ({ id: 'a', title, state, detail, details: '' })
 
-it('shows only the status line before the first tool call', () => {
-  expect(plain(renderActivity({ calls: 0, failed: 0 }, 3, 80))).toEqual(['✻ Working… 3s · Ctrl-C to stop'])
+it('reserves the same panel height before the first tool call', () => {
+  expect(plain(renderActivity({ calls: 0, failed: 0 }, 3, 80))).toEqual(['✻ Working… 3s · Ctrl-C to stop', '', '', '', ''])
 })
 
 it('shows counts, the latest call, and a fixed number of detail rows', () => {
@@ -31,6 +32,6 @@ it('wraps long lines, ends with an ellipsis when detail is cut, and never exceed
 
 it('colors added and removed lines', () => {
   const rows = renderActivity({ calls: 1, failed: 0, latest: call('done', ['/a', '- old', '+ new']) }, 1, 40)
-  expect(rows[3]).toContain('\x1b[31m')
-  expect(rows[4]).toContain('\x1b[32m')
+  expect(rows[3]).toBe(color.red('    - old'))
+  expect(rows[4]).toBe(color.green('    + new'))
 })

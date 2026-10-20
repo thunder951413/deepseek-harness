@@ -1,10 +1,4 @@
-Assistant
-Reply to free-question
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-You
-reject
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-● 1 tool call · 1 failed · /tools
+● 1 tool call · 1 failed · Bash(printf tui-proof > tui-proof.txt) · /tools
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Assistant
 Reply to reject
@@ -31,9 +25,15 @@ again
 Assistant
 Reply to again
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+You
+after recovery
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Assistant
+Reply to after recovery
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 › Message · Enter send · Shift+Enter new line
 
 
 Model: terminal-fixture/fixture · Reasoning: low  DeepSeek Harness · <session>
-Cache: 75% · Output: <speed> tok/s · Balance: 未提供  <cwd>
+Cache: 75% · Output: <speed> tok/s · Balance: Unavailable  <cwd>
 / commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit  Web: <origin> · /web for the sign-in link

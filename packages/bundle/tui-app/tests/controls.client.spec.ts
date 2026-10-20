@@ -15,6 +15,7 @@ function harness() {
   const abort = new AbortController()
   const changes: ReadingsChange[] = []
   const services: ConstructorParameters<typeof TerminalControls>[0] = {
+    queue: vi.fn(async () => []),
     readings: vi.fn(async (): Promise<ReadingsResult | undefined> => ({ kind: 'values', readings: {} })),
     watchReadings: vi.fn(async function* () { yield* changes }),
     modelCatalog: vi.fn(async () => catalog),
@@ -22,7 +23,7 @@ function harness() {
     balance: vi.fn(async (): Promise<Balance> => null),
     async *watchAccount() { yield },
   }
-  const ui = { metrics: vi.fn(), accepted: vi.fn(),
+  const ui = { queueCount: vi.fn(), view: vi.fn(async (_title: string, _body: string) => {}), metrics: vi.fn(), accepted: vi.fn(),
     choose: vi.fn(async (_title: string, _choices: readonly string[], _signal: AbortSignal): Promise<number | undefined> => 0) }
   const controls = new TerminalControls(services, ui, abort.signal, '1.2.3')
   return { controls, services, ui, abort, changes }
@@ -66,7 +67,7 @@ it('shows missing optional features as unreported instead of failing', async () 
   const { controls, services, ui } = harness()
   vi.mocked(services.balance).mockRejectedValueOnce(new Unsupported('balance'))
   await controls.refreshBalance()
-  expect(ui.metrics.mock.lastCall?.[0]).toContain('Balance: 未提供')
+  expect(ui.metrics.mock.lastCall?.[0]).toContain('Balance: Unavailable')
   vi.mocked(services.readings).mockRejectedValueOnce(new Unsupported('readings'))
   await controls.select(SessionId('one'))
   expect(ui.metrics.mock.lastCall?.[0]).not.toContain('unavailable')
@@ -123,7 +124,7 @@ it('shows complete statistics for /stats', async () => {
   vi.mocked(services.readings).mockResolvedValue({ kind: 'values', readings: {
     usage: { uncachedInput: 1, cacheRead: 3, cacheWrite: 0, output: 5 } } })
   expect(await controls.command('/stats')).toBe(true)
-  expect(ui.choose.mock.lastCall?.[0]).toContain('Input: 4 · Output: 5')
+  expect(ui.view.mock.lastCall?.[1]).toContain('Input: 4 · Output: 5')
 })
 
 it('refreshes readings for relevant live changes only and reports a disconnected stream', async () => {
@@ -158,7 +159,7 @@ it('removes stale statistics on a failed read and stops rendering after cancella
   vi.mocked(services.readings).mockRejectedValueOnce(new Error('unavailable'))
   await controls.select(SessionId('one'))
   expect(ui.metrics.mock.lastCall?.[0]).toContain('Statistics unavailable')
-  expect(ui.metrics.mock.lastCall?.[0]).toContain('Model: 未提供')
+  expect(ui.metrics.mock.lastCall?.[0]).toContain('Model: Unavailable')
   abort.abort()
   ui.metrics.mockClear()
   await controls.refreshBalance()
@@ -188,7 +189,7 @@ it('accepts /cost as /stats and picks models without reasoning defaults', async 
   const { controls, services, ui } = harness()
   await controls.select(SessionId('one'))
   expect(await controls.command('/cost')).toBe(true)
-  expect(ui.choose.mock.lastCall?.[0]).toContain('Whole session')
+  expect(ui.view.mock.lastCall?.[1]).toContain('Whole session')
   ui.choose.mockResolvedValueOnce(0)
   await controls.command('/model')
   expect(services.selectModel).toHaveBeenLastCalledWith(SessionId('one'), { provider: 'test', model: 'model' })
@@ -202,7 +203,7 @@ it('handles reasoning menus for models that list levels without a default and di
   await controls.select(SessionId('one'))
   ui.choose.mockResolvedValueOnce(undefined)
   await controls.command('/reasoning')
-  expect(ui.choose.mock.calls.at(-1)?.[0]).toContain('current: 未提供')
+  expect(ui.choose.mock.calls.at(-1)?.[0]).toContain('current: Unavailable')
   expect(services.selectModel).not.toHaveBeenCalled()
   ui.choose.mockResolvedValueOnce(5)
   await controls.command('/reasoning')

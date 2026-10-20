@@ -1,7 +1,8 @@
 /** Tolerant readers accept additive wire changes and degrade malformed optional data. */
 import { expect, it } from 'vitest'
 import {
-  json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings, readSessionList, readWorkspaceId,
+  readQueue, readSearch, json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings,
+  readSessionList, readWorkspaceId,
 } from '../src/readers.ts'
 
 it('keeps plain JSON and replaces members that cannot be serialized', () => {
@@ -98,4 +99,17 @@ it('reads balances, preserving decimal strings and treating unknown statuses as 
     .toEqual({ status: 'ready', wallets: [{ currency: 'CNY', balance: '1.2300' }], bonusWallets: [{ currency: 'CNY', balance: '2' }] })
   expect(readBalance({ status: 'failed' })).toEqual({ status: 'failed' })
   expect(readBalance({ status: 'future' })).toEqual({ status: 'failed' })
+})
+
+
+it('only offers human text messages for queue editing and keeps their target', () => {
+  expect(readQueue({ values: { inbox: { 'next-turn': [
+    { id: 'human', source: { kind: 'user' }, content: [{ type: 'text', text: 'queued' }] },
+    { id: 'image', source: { kind: 'user' }, content: [{ type: 'image' }] },
+    { id: 'tool', source: { kind: 'tool' }, content: [{ type: 'text', text: 'hidden' }] },
+  ], 'next-step': [{ id: 'steering', source: { kind: 'user' }, content: [{ type: 'text', text: 'now' }] }] } } })).toEqual([
+    { id: 'human', target: 'next-turn', text: 'queued' }, { id: 'steering', target: 'next-step', text: 'now' },
+  ])
+  expect(readQueue({ values: {} })).toBeUndefined()
+  expect(readSearch({ items: [{ sessionId: 'a', snippet: 'match' }, {}], hasMore: true })).toEqual({ items: [{ id: 'a', snippet: 'match' }], hasMore: true })
 })

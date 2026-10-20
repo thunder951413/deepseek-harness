@@ -20,7 +20,7 @@ describe('terminal transcript', () => {
     expect(transcript.view().entries).toEqual([
       { id: '0', seq: 0, kind: 'user', text: 'Read the project' },
       { id: '1', seq: 1, kind: 'tools', text: '1 tool call · 1 failed', group: { count: 1, failed: 1, calls: [
-        { id: 'read-1', title: 'read_file(README.md)', state: 'failed', detail: ['path: README.md'], details: '{"path":"README.md"}\n\nFile not found' },
+        { id: 'read-1', argumentLength: 20, title: 'read_file(README.md)', state: 'failed', detail: ['path: README.md'], details: '{"path":"README.md"}\n\nFile not found' },
       ] } },
       { id: '3', seq: 3, kind: 'assistant', text: 'Choose another file.' },
     ])
@@ -35,7 +35,7 @@ describe('terminal transcript', () => {
     transcript.accept(event('assistant/message', { message: { content: [{ type: 'text', text: 'finished' }] } }))
     expect(transcript.view()).toMatchObject({ live: '', entries: [{ kind: 'assistant', text: 'finished' }] })
     transcript.reset()
-    expect(transcript.view()).toEqual({ entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } })
+    expect(transcript.view()).toEqual({ entries: [], live: '', working: false, activity: { phase: 'Waiting for model', calls: 0, failed: 0 } })
   })
 
   it('bounds retained text and strips OSC hyperlinks and cursor commands', () => {
@@ -89,7 +89,7 @@ describe('terminal transcript', () => {
     expect(transcript.view().entries.map(entry => entry.text)).toEqual(['2 tool calls · 1 failed', 'narration', '1 tool call'])
     expect(transcript.view().activity).toMatchObject({ calls: 3, failed: 1, latest: { id: 'c', state: 'running' } })
     transcript.accept(event('turn/start', {}, 8))
-    expect(transcript.view().activity).toEqual({ calls: 0, failed: 0 })
+    expect(transcript.view().activity).toEqual({ phase: 'Waiting for model', calls: 0, failed: 0 })
   })
 
   it('keeps the latest call current only while its own result arrives, and ignores results of unknown calls', () => {
@@ -151,7 +151,7 @@ describe('terminal transcript', () => {
     transcript.stream({ type: 'end' })
     transcript.accept(event('user/message', { source: { kind: 'tool' }, content: 'hidden' }, 1))
     transcript.accept(event('future/event', {}, 2))
-    expect(transcript.view()).toEqual({ entries: [], live: '', working: true, activity: { calls: 0, failed: 0 } })
+    expect(transcript.view()).toEqual({ entries: [], live: '', working: true, activity: { phase: 'Receiving response', calls: 0, failed: 0 } })
   })
 
   it('finds the arguments of the call awaiting approval', () => {
@@ -170,4 +170,14 @@ describe('terminal transcript', () => {
     transcript.accept(event('turn/end', [], 4))
     expect(transcript.view().entries.map(entry => entry.text)).toEqual(['blue', '1 tool call', 'Turn finished'])
   })
+})
+
+it('marks clipped tool output and records the sanitized argument split', () => {
+  const transcript = new TerminalTranscript(90)
+  transcript.accept(event('tool/call', { name: 'bash', callId: 'a', arguments: '{"command":"ls"}' }, 1))
+  transcript.accept(event('tool/result', { message: { toolCallId: 'a', content: [{ type: 'text', text: 'x'.repeat(200) }] } }, 2))
+  expect(transcript.view().truncated).toBe(true)
+  const call = transcript.view().entries[0]?.group?.calls[0]
+  expect(call).toMatchObject({ argumentLength: 16, truncated: true })
+  expect(call?.details.slice(0, call.argumentLength)).toBe('{"command":"ls"}')
 })

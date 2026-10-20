@@ -25,11 +25,14 @@ export interface ConversationUpdate {
 export async function* observe(port: Pick<HarnessPort, 'follow'>, sessionId: SessionId, historyMessages: number, maxCharacters: number,
   fallbackDirectory: string, signal: AbortSignal): AsyncGenerator<ConversationUpdate> {
   const transcript = new TerminalTranscript(maxCharacters)
+  let hasMore = false
   for await (const frame of port.follow(sessionId, historyMessages, signal)) {
     if (signal.aborted) return
     let directory: string | undefined
     let turnEnded = false
     if (frame.kind === 'snapshot') {
+      transcript.reset()
+      hasMore = frame.hasMore === true
       directory = frame.cwd ?? fallbackDirectory
       for (const event of frame.events) transcript.accept(event)
       if (frame.active !== undefined) transcript.restore(frame.active)
@@ -37,6 +40,7 @@ export async function* observe(port: Pick<HarnessPort, 'follow'>, sessionId: Ses
       transcript.accept(frame.event)
       turnEnded = frame.event.type === 'turn/end'
     } else transcript.stream(frame.frame)
-    yield { view: transcript.view(), ...directory === undefined ? {} : { directory }, turnEnded }
+    yield { view: { ...transcript.view(), ...hasMore ? { truncated: true } : {} },
+      ...directory === undefined ? {} : { directory }, turnEnded }
   }
 }

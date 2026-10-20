@@ -2,6 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-cmdline'
+import { TerminalLocale } from './locale.ts'
+import { browseTools, manageQueue, saveLog } from './actions.ts'
 import type { TerminalView } from './transcript.ts'
 import { TerminalUi } from './ui.ts'
 import { TerminalControls } from './controls.ts'
@@ -24,6 +26,10 @@ export const inject = ['tuiStartup']
 export interface Config {
   /** Existing conversation selected by the invocation. */
   session?: string
+  /** Interface language. */
+  language: 'en' | 'zh'
+  /** Status density. */
+  statusLayout: 'auto' | 'compact' | 'detailed'
   /** Existing Host launch URL; omission starts an owned Web process. */
   connect?: string
   /** Stock profile used for the owned backend(). */
@@ -59,6 +65,8 @@ export interface Config {
 /** Terminal history limits, configurable through profile patches. */
 export const Config: z<Config> = z.object({
   session: z.string(),
+  language: z.union(['en', 'zh'] as const).default('en'),
+  statusLayout: z.union(['auto', 'compact', 'detailed'] as const).default('auto'),
   connect: z.string(),
   backendProfile: z.string().default('web'),
   port: z.natural().max(65535).default(0),
@@ -89,6 +97,8 @@ export function apply(ctx: Context, config: Config): void {
   const ready = ctx.get('appReady')
   const exit = ctx.get('appExit')
   if (ready === undefined || exit === undefined) throw new Error('tui requires the dsh profile launcher')
+  const locale = new TerminalLocale(config.language)
+  const t = locale.text.bind(locale)
   const lifetime = new AbortController()
   const tasks = new Set<Promise<void>>()
   let transcript: TerminalView = { entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } }
@@ -104,7 +114,11 @@ export function apply(ctx: Context, config: Config): void {
   let directory = process.cwd()
   let follower: AbortController | undefined
   let following: Promise<void> | undefined
-  let busy = false
+  let operations = Promise.resolve()
+  let liveControls: AbortController | undefined
+  let stopConnection: (() => void) | undefined
+  let connected = true
+  let historyMessages = config.historyMessages
   let interaction = Promise.resolve()
 
   const report = (error: unknown): void => {
@@ -117,9 +131,8 @@ export function apply(ctx: Context, config: Config): void {
     void task.finally(() => { tasks.delete(task) })
   }
   const serialize = (action: () => Promise<void>): void => {
-    if (busy || lifetime.signal.aborted) return
-    busy = true
-    run(async () => { try { await action() } finally { busy = false } })
+    const next = operations.then(async () => { if (!lifetime.signal.aborted) await action() }).catch(report)
+    operations = next
   }
   const title = (): void => {
     if (selected !== undefined) ui?.session(selected, backend().url, directory)
@@ -130,13 +143,13 @@ export function apply(ctx: Context, config: Config): void {
     if (lifetime.signal.aborted) return
     selected = id
     transcript = { entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } }
-    ui?.status('Loading conversation…')
+    ui?.status(t('Loading conversation…'))
     await controls?.select(id)
     lifetime.signal.throwIfAborted()
     follower = new AbortController()
     const signal = AbortSignal.any([follower.signal, lifetime.signal])
     following = (async () => {
-      for await (const frame of observe(backend(), id, config.historyMessages, config.transcriptCharacters, directory, signal)) {
+      for await (const frame of observe(backend(), id, historyMessages, config.transcriptCharacters, directory, signal)) {
         if (signal.aborted) return
         if (frame.directory !== undefined) {
           directory = frame.directory
@@ -158,47 +171,88 @@ export function apply(ctx: Context, config: Config): void {
     await select(id)
     await controls?.useDefaultEffort(id, config.defaultReasoningEffort)
   }
+  const search = async (query?: string): Promise<void> => {
+    const value = query ?? await ui?.ask(t('Search conversation content'), lifetime.signal)
+    if (value === undefined || value.trim() === '') return
+    const result = await backend().search(value, lifetime.signal)
+    if (result.items.length === 0) { ui?.status(t('No matches')); return }
+    const index = await ui?.choose(`${t('Search results')}${result.hasMore ? ` · ${t('More matches exist; narrow the search.')}` : ''}`,
+      result.items.map(item => `${item.id} · ${item.snippet}`), lifetime.signal)
+    const match = index === undefined ? undefined : result.items[index]
+    if (match !== undefined) await select(match.id)
+  }
   const pick = async (): Promise<void> => {
-    const here = process.cwd()
-    const sessions = await sessionsIn(here, await backend().listSessions(lifetime.signal))
-    const index = await ui?.choose(`Conversations · choose one to resume\n\nIn ${here}; /resume <id> opens one from another directory.`, [
-      '+ New conversation', ...sessions.map(item => `${item.running ? '▶ ' : ''}${item.title ?? 'Untitled'} · ${item.id}`),
-    ], lifetime.signal)
-    if (index === 0) await create()
-    else if (index !== undefined) {
-      const session = sessions[index - 1]
-      if (session !== undefined) await select(session.id)
+    let all = false
+    for (;;) {
+      const available = await backend().listSessions(lifetime.signal)
+      const sessions = all ? available : await sessionsIn(process.cwd(), available)
+      const relative = new Intl.RelativeTimeFormat(locale.language, { numeric: 'auto' })
+      const index = await ui?.choose(`${t('Conversations')} · ${t(all ? 'All projects' : 'Current project')}`, [
+        t('+ New conversation'), ...sessions.map(item => `${item.running ? '▶ ' : ''}${item.title ?? t('Untitled')} · ${relative.format(Math.min(0, Math.round((item.updatedAt - Date.now()) / 60000)), 'minute')} · ${item.id}`),
+        t(all ? 'Current project' : 'All projects'), t('Search conversation content'),
+      ], lifetime.signal)
+      if (index === undefined) return
+      if (index === sessions.length + 1) { all = !all; continue }
+      if (index === sessions.length + 2) await search()
+      else if (index === 0) await create()
+      else { const session = sessions[index - 1]; if (session !== undefined) await select(session.id) }
+      return
     }
   }
-  const inspectTools = async (): Promise<void> => {
-    const calls = transcript.entries.flatMap(entry => entry.group?.calls ?? []).toReversed()
-    const index = await ui?.choose('Tool activity · choose an item to expand', calls.length === 0 ? ['No tool activity · Close']
-      : calls.map(call => `${call.state === 'failed' ? '✗' : call.state === 'running' ? '…' : '✓'} ${call.title}`), lifetime.signal)
-    const call = index === undefined ? undefined : calls[index]
-    if (call !== undefined) await ui?.choose(`${call.title}\n\n${call.details === '' ? 'No text output' : call.details}`, ['Close'], lifetime.signal)
-  }
+  const inspectTools = async (): Promise<void> => { if (ui !== undefined) await browseTools(ui, transcript, lifetime.signal) }
   const send = async (text: string): Promise<void> => {
     if (text.trim() === '') return
     if (selected === undefined) await create()
     if (selected === undefined || lifetime.signal.aborted) return
-    const [command, argument] = text.trim().split(/\s+/u)
+    const command = text.trim().split(/\s+/u)[0]
+    const argument = text.trim().slice(command?.length ?? 0).trim() || undefined
+    if (command !== undefined && ['/queue', '/steer', '/search', '/rename', '/fork', '/export', '/language', '/layout', '/history', '/reconnect'].includes(command)) {
+      if (ui === undefined) return
+      const id = selected
+      if (command === '/steer') {
+        const instruction = argument ?? await ui.ask(t('Steer now'), lifetime.signal)
+        if (instruction !== undefined) { await backend().prompt(id, instruction, lifetime.signal, 'steer'); ui.accepted(); ui.status(t('Instruction accepted for the next model step')) }
+        else ui.failed('')
+        return
+      }
+      ui.accepted()
+      if (command === '/queue') await manageQueue(ui, backend(), id, lifetime.signal)
+      else if (command === '/search') await search(argument)
+      else if (command === '/rename') {
+        const title = argument ?? await ui.ask(t('Rename conversation'), lifetime.signal)
+        if (title !== undefined) { await backend().rename(id, title); ui.status(t('Conversation renamed')) }
+      } else if (command === '/fork') {
+        if (await ui.choose(t('Fork from the latest completed turn?'), [t('Cancel'), t('Fork')], lifetime.signal) === 1) await select(await backend().fork(id))
+      } else if (command === '/export') await saveLog(ui, backend(), id, lifetime.signal)
+      else if (command === '/language') {
+        const choice = await ui.choose(t('Language'), ['English', '简体中文'], lifetime.signal, locale.language === 'en' ? 0 : 1)
+        if (choice !== undefined) { locale.language = choice === 0 ? 'en' : 'zh'; ui.relocalize(); await controls?.select(id) }
+      } else if (command === '/layout') {
+        const choice = await ui.choose(t('Layout'), [t('Automatic'), t('Compact'), t('Detailed')], lifetime.signal)
+        if (choice !== undefined) ui.layout(choice === 0 ? 'auto' : choice === 1 ? 'compact' : 'detailed')
+      } else if (command === '/history') { historyMessages += config.historyMessages; await select(id) }
+      else { ui.status(t('Reconnecting…')); backend().reconnect() }
+      return
+    }
     if (['/new', '/clear', '/resume', '/tools', '/help', '/exit', '/web'].includes(command ?? '')) {
       ui?.accepted()
       if (command === '/new' || command === '/clear') await create()
-      else if (command === '/web') await ui?.choose(`Browser sign-in link\n\n${backend().url}\n\nOpen it in a browser to configure providers and credentials. Treat it like a password.`, ['Close'], lifetime.signal)
+      else if (command === '/web') await ui?.view(t('Browser sign-in link'), `${backend().url}\n\n${t('Open it in a browser to configure providers and credentials. Treat it like a password.')}`, lifetime.signal)
       else if (command === '/resume') {
         if (argument === undefined) await pick()
         else await select(SessionId(argument))
       } else if (command === '/tools') await inspectTools()
-      else if (command === '/help') await ui?.choose(
-        `Commands\n\n${terminalCommands.map(item => `/${item.name} — ${item.description ?? ''}`).join('\n')}\n\nEnter send · Shift+Enter new line · ↑↓ edit/history\nCtrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit\n@ inserts a project file path; the model can read it with its file tools.`, ['Close'], lifetime.signal)
+      else if (command === '/help') await ui?.view(t('Commands'),
+        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}`, lifetime.signal)
       else exit(0)
       return
     }
     if (await enqueue(async () => await controls?.command(text) ?? false)) { title(); return }
+    const queued = transcript.working
     await backend().prompt(selected, text, lifetime.signal)
     ui?.accepted()
     title()
+    if (queued) ui?.status(t('Message accepted for the next turn · /queue to manage'))
   }
   const cancel = (): void => {
     if (selected === undefined) return
@@ -213,7 +267,8 @@ export function apply(ctx: Context, config: Config): void {
   const answer = async (request: PortQuestionRequest): Promise<{ answers: PortAnswer[] }> => {
     const view = ui
     if (view === undefined) throw new Error('Terminal is unavailable')
-    const signal = AbortSignal.any([lifetime.signal, ...request.signal === undefined ? [] : [request.signal]])
+    const signal = AbortSignal.any([lifetime.signal, ...follower === undefined ? [] : [follower.signal],
+      ...request.signal === undefined ? [] : [request.signal]])
     const claim = new AbortController()
     const claimSignal = AbortSignal.any([claim.signal, signal])
     const sessionId = request.sessionId
@@ -240,7 +295,7 @@ export function apply(ctx: Context, config: Config): void {
                 selectedOptions.includes(option.label) ? '[✓] ' : '', option.label,
                 option.description === undefined ? '' : ` — ${option.description}`,
               ].join('')),
-              'Type an answer…', ...question.multiSelect === true ? ['Done'] : [],
+              t('Type an answer…'), ...question.multiSelect === true ? [t('Done')] : [],
             ], signal)
             if (index === undefined) throw new Error('Question dismissed; stop the turn or answer in the Web interface')
             if (index === options.length) { custom = await view.ask(heading, signal); break }
@@ -268,22 +323,34 @@ export function apply(ctx: Context, config: Config): void {
     backend().onApproval(async (request) => {
       const view = ui
       if (view === undefined || request.sessionId !== selected || lifetime.signal.aborted) return undefined
+      const selectionSignal = follower?.signal
       return enqueue(async () => {
-        const signal = AbortSignal.any([lifetime.signal, ...request.signal === undefined ? [] : [request.signal]])
+        if (request.sessionId !== selected || selectionSignal?.aborted === true) return undefined
+        const signal = AbortSignal.any([lifetime.signal, ...follower === undefined ? [] : [follower.signal],
+          ...request.signal === undefined ? [] : [request.signal]])
         const operation = request.callId === undefined ? undefined : await backend().readToolCall(request.sessionId, request.callId, signal)
         if (operation === undefined) {
           view.status(`Approval for ${request.toolName} needs the Web interface: its arguments are not available here.`)
           return undefined
         }
-        const choice = await view.choose(
-          `Allow ${request.toolName}?\n\n${operation}\n\n${request.reason ?? ''}`, ['Reject', 'Allow once'], signal,
-        )
-        return signal.aborted ? 'cancelled' : choice === 1 ? 'allowed-once' : 'rejected'
+        view.waitFor('Waiting for approval')
+        await view.view(t('Review operation'), `${operation}\n\n${request.reason ?? ''}`, signal)
+        for (;;) {
+          const choice = await view.choose(t('Allow {tool}?', { tool: request.toolName }), [t('Reject'), t('Allow once'), t('Review operation')], signal)
+          if (choice === 2) { await view.view(t('Review operation'), `${operation}\n\n${request.reason ?? ''}`, signal); continue }
+          view.waitFor(undefined)
+          return signal.aborted ? 'cancelled' : choice === 1 ? 'allowed-once' : 'rejected'
+        }
       })
     })
     backend().onQuestion(async (request) => {
       if (ui === undefined || request.sessionId !== selected || lifetime.signal.aborted) return undefined
-      return enqueue(() => answer(request))
+      const selectionSignal = follower?.signal
+      return enqueue(async () => {
+        if (request.sessionId !== selected || selectionSignal?.aborted === true) return undefined
+        ui?.waitFor('Waiting for answer')
+        try { return await answer(request) } finally { ui?.waitFor(undefined) }
+      })
     })
   }
   ctx.effect(() => ready.onReady(() => {
@@ -298,17 +365,31 @@ export function apply(ctx: Context, config: Config): void {
           send: (text) => { serialize(() => send(text)) },
           sessions: () => { serialize(pick) }, create: () => { serialize(create) }, cancel,
           tools: () => { serialize(inspectTools) }, exit: () => { exit(0) },
-        }, config.completionDepth, config.completionFiles, tints)
+        }, config.completionDepth, config.completionFiles, tints, locale)
+        ui.layout(config.statusLayout)
         const startupSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.startupTimeoutMs)])
         const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, config.startupTimeoutMs,
           config.shutdownTimeoutMs, lifetime.signal, text => ui?.status(text))).url
         connection = await WebRemotePort.connect(url, startupSignal)
         attachInteractions()
-        controls = new TerminalControls(backend(), ui, lifetime.signal, version)
-        const activeControls = controls
-        run(() => activeControls.watchSessions())
-        run(() => activeControls.watchAccount())
-        run(() => activeControls.loadModels())
+        const startControls = (): void => {
+          if (ui === undefined) return
+          liveControls?.abort()
+          liveControls = new AbortController()
+          const signal = AbortSignal.any([lifetime.signal, liveControls.signal])
+          controls = new TerminalControls(backend(), ui, signal, version, locale)
+          const active = controls
+          for (const action of [() => active.watchSessions(), () => active.watchAccount(), () => active.loadModels()]) {
+            run(async () => { try { await action() } catch (error) { if (!signal.aborted) throw error } })
+          }
+        }
+        startControls()
+        stopConnection = backend().onConnection((state) => {
+          connected = state === 'connected'
+          ui?.connection(connected)
+          if (!connected) { follower?.abort(); liveControls?.abort(); return }
+          serialize(async () => { startControls(); if (selected !== undefined) await select(selected) })
+        })
         title()
         serialize(async () => {
           if (config.session !== undefined) await select(SessionId(config.session))
@@ -323,9 +404,11 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => async () => {
     lifetime.abort()
     follower?.abort()
+    liveControls?.abort()
+    stopConnection?.()
     await ui?.dispose()
     await connection?.dispose()
     await server?.close()
-    await Promise.allSettled([...tasks, interaction, ...following === undefined ? [] : [following]])
+    await Promise.allSettled([...tasks, operations, interaction, ...following === undefined ? [] : [following]])
   }, 'terminal shutdown')
 }
