@@ -32,6 +32,6 @@ it('wraps long lines, ends with an ellipsis when detail is cut, and never exceed
 
 it('colors added and removed lines', () => {
   const rows = renderActivity({ calls: 1, failed: 0, latest: call('done', ['/a', '- old', '+ new']) }, 1, 40)
-  expect(rows[3]).toBe(color.red('    - old'))
-  expect(rows[4]).toBe(color.green('    + new'))
+  expect(rows[3]).toBe(`    ${color.red('- old')}`)
+  expect(rows[4]).toBe(`    ${color.green('+ new')}`)
 })

@@ -1,9 +1,9 @@
 /** Archive failures preserve existing files and remove incomplete downloads. */
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
-import { expect, it } from 'vitest'
-import { exportArchive } from '../src/actions.ts'
+import { homedir, tmpdir } from 'node:os'
+import { expect, it, vi } from 'vitest'
+import { askExportPath, exportArchive } from '../src/actions.ts'
 import { SessionId } from '../src/port.ts'
 
 it('streams bytes, refuses overwrite, and removes an owned partial file after failure', async () => {
@@ -23,4 +23,16 @@ it('streams bytes, refuses overwrite, and removes an owned partial file after fa
     await expect(exportArchive(source, SessionId('test'), partial, signal)).rejects.toMatchObject({ code: 'EEXIST' })
     expect(await readFile(partial, 'utf8')).toBe('untouched')
   } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+it('trims the export destination, expands the home directory, and treats blank input as dismissal', async () => {
+  const signal = new AbortController().signal
+  const ask = vi.fn(async (): Promise<string | undefined> => '  ~/logs/a.zip \n')
+  const ui = { ask, locale: { text: (phrase: string) => phrase } } as unknown as Parameters<typeof askExportPath>[0]
+  expect(await askExportPath(ui, SessionId('a/b'), signal)).toBe(join(homedir(), 'logs', 'a.zip'))
+  expect(ask).toHaveBeenCalledWith(expect.any(String), signal, expect.stringMatching(/dsh-a_b\.zip$/u))
+  ask.mockResolvedValueOnce('   ')
+  expect(await askExportPath(ui, SessionId('a'), signal)).toBeUndefined()
+  ask.mockResolvedValueOnce(undefined)
+  expect(await askExportPath(ui, SessionId('a'), signal)).toBeUndefined()
 })

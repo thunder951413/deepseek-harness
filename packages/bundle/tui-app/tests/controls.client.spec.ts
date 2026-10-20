@@ -1,7 +1,7 @@
 /** Terminal selection races, query failure containment, and command ownership. */
 import { expect, it, vi } from 'vitest'
 import { TerminalControls } from '../src/controls.ts'
-import { SessionId, Unsupported, type Balance, type ModelCatalogView, type ReadingsChange, type ReadingsResult } from '../src/port.ts'
+import { PendingMessageId, SessionId, Unsupported, type Balance, type ModelCatalogView, type ReadingsChange, type ReadingsResult } from '../src/port.ts'
 
 const catalog: ModelCatalogView = {
   default: { provider: 'test', model: 'model' }, failures: [],
@@ -242,4 +242,36 @@ it('leaves the effort alone when disabled, unavailable, already applied, or for 
   await bare.controls.useDefaultEffort(SessionId('one'), 'high')
   expect(services.selectModel).not.toHaveBeenCalled()
   expect(bare.services.selectModel).not.toHaveBeenCalled()
+})
+
+it('keeps the queue count while an inbox change refreshes it, and hides it when the refresh fails', async () => {
+  const { controls, services, ui, changes } = harness()
+  vi.mocked(services.queue).mockResolvedValue([{ id: PendingMessageId('a'), text: 'one', target: 'next-turn' }])
+  await controls.select(SessionId('s'))
+  expect(ui.queueCount.mock.calls).toEqual([[undefined], [1]])
+  ui.queueCount.mockClear()
+  changes.push({ sessionId: SessionId('s'), key: 'inbox' })
+  await controls.watchSessions()
+  await vi.waitFor(() => { expect(ui.queueCount).toHaveBeenCalledWith(1) })
+  expect(ui.queueCount).not.toHaveBeenCalledWith(undefined)
+  vi.mocked(services.queue).mockRejectedValueOnce(new Unsupported('pending messages'))
+  changes.length = 0
+  changes.push({ sessionId: SessionId('s'), key: 'inbox' })
+  await controls.watchSessions()
+  await vi.waitFor(() => { expect(ui.queueCount).toHaveBeenLastCalledWith(undefined) })
+})
+
+it('skips queue reads without a selection and ignores a failure that finishes after switching conversations', async () => {
+  const { controls, services, ui, changes } = harness()
+  changes.push({ key: 'inbox' })
+  await controls.watchSessions()
+  expect(services.queue).not.toHaveBeenCalled()
+  const stale = Promise.withResolvers<never[]>()
+  vi.mocked(services.queue).mockImplementationOnce(() => stale.promise).mockResolvedValue([])
+  const first = controls.select(SessionId('old'))
+  await controls.select(SessionId('new'))
+  ui.queueCount.mockClear()
+  stale.reject(new Error('offline'))
+  await first
+  expect(ui.queueCount).not.toHaveBeenCalled()
 })

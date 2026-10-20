@@ -6,7 +6,7 @@
  */
 import type {
   Balance, CatalogModel, FollowFrame, Json, JournalEvent, ModelCatalogView, ModelChoice, Readings, ReadingsChange,
-  ReadingsResult, SessionSummary, StreamFrame, Wallet, PendingMessage,
+  ReadingsResult, SessionSummary, SkillSummary, StreamFrame, Wallet, PendingMessage,
 } from './port.ts'
 import { SessionId, PendingMessageId } from './port.ts'
 
@@ -123,6 +123,19 @@ export function readQueue(value: unknown): PendingMessage[] | undefined {
     if (id === undefined || dict(message.source).kind !== 'user' || blocks.some(block => dict(block).type !== 'text')) return []
     return [{ id: PendingMessageId(id), target, text: blocks.map(block => str(dict(block).text) ?? '').join('\n') }]
   }))
+}
+
+/** Read the skill catalog, ignoring entries without a name.
+ * @param value - `skills/list` response.
+ * @returns names with their descriptions; throws when the response is not a skill list. */
+export function readSkills(value: unknown): SkillSummary[] {
+  const skills = dict(value).skills
+  if (!Array.isArray(skills)) throw new Error('Invalid skill catalog response')
+  return skills.flatMap((item) => {
+    const row = dict(item)
+    const name = str(row.name)
+    return name === undefined ? [] : [{ name, description: str(row.description) ?? '' }]
+  })
 }
 
 /** Read content-search matches without trusting backend display text.

@@ -1,7 +1,7 @@
 /** Tolerant readers accept additive wire changes and degrade malformed optional data. */
 import { expect, it } from 'vitest'
 import {
-  readQueue, readSearch, json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings,
+  readQueue, readSearch, readSkills, json, readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings,
   readSessionList, readWorkspaceId,
 } from '../src/readers.ts'
 
@@ -112,4 +112,10 @@ it('only offers human text messages for queue editing and keeps their target', (
   ])
   expect(readQueue({ values: {} })).toBeUndefined()
   expect(readSearch({ items: [{ sessionId: 'a', snippet: 'match' }, {}], hasMore: true })).toEqual({ items: [{ id: 'a', snippet: 'match' }], hasMore: true })
+})
+
+it('reads skill names with descriptions and ignores entries without a name', () => {
+  expect(readSkills({ skills: [{ name: 'a', description: 'Does a', modelInvocable: true }, { name: 'b' }, { description: 'nameless' }], more: 1 }))
+    .toEqual([{ name: 'a', description: 'Does a' }, { name: 'b', description: '' }])
+  expect(() => readSkills({ skills: 'none' })).toThrow('Invalid skill catalog')
 })

@@ -3,16 +3,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { TerminalLocale } from './locale.ts'
-import { browseTools, manageQueue, saveLog } from './actions.ts'
+import { askExportPath, browseTools, exportArchive, manageQueue } from './actions.ts'
 import type { TerminalView } from './transcript.ts'
 import { TerminalUi } from './ui.ts'
 import { TerminalControls } from './controls.ts'
 import { terminalCommands } from './completion.ts'
-import { SessionId, type HarnessPort, type PortAnswer, type PortQuestionRequest } from './port.ts'
+import { SessionId, type HarnessPort, type PortAnswer, type PortQuestionRequest, type SkillSummary } from './port.ts'
 import { WebRemotePort } from './web-remote.ts'
 import { createRequire } from 'node:module'
 import { observe } from './conversation.ts'
 import { sessionsIn } from './history.ts'
+import { relativeAge } from './welcome.ts'
 import { chooseTints } from './appearance.ts'
 import { queryBackground } from './background-query.ts'
 import { startServer, type TerminalServer } from './server.ts'
@@ -119,6 +120,8 @@ export function apply(ctx: Context, config: Config): void {
   let stopConnection: (() => void) | undefined
   let connected = true
   let historyMessages = config.historyMessages
+  let selection = 0
+  let skills: readonly SkillSummary[] = []
   let interaction = Promise.resolve()
 
   const report = (error: unknown): void => {
@@ -141,11 +144,26 @@ export function apply(ctx: Context, config: Config): void {
     follower?.abort()
     await following
     if (lifetime.signal.aborted) return
+    const current = ++selection
+    if (id !== selected) historyMessages = config.historyMessages
     selected = id
     transcript = { entries: [], live: '', working: false, activity: { calls: 0, failed: 0 } }
     ui?.status(t('Loading conversation…'))
     await controls?.select(id)
+    run(async () => {
+      let catalog: SkillSummary[]
+      try {
+        catalog = await backend().skills(id, lifetime.signal)
+      } catch (_error) {
+        // The list only decorates the banner and /help; a Harness without a skill catalog, or a failed read, leaves it hidden.
+        return
+      }
+      if (selected !== id) return
+      skills = catalog
+      ui?.banner({ skills: catalog })
+    })
     lifetime.signal.throwIfAborted()
+    if (current !== selection) return
     follower = new AbortController()
     const signal = AbortSignal.any([follower.signal, lifetime.signal])
     following = (async () => {
@@ -186,9 +204,12 @@ export function apply(ctx: Context, config: Config): void {
     for (;;) {
       const available = await backend().listSessions(lifetime.signal)
       const sessions = all ? available : await sessionsIn(process.cwd(), available)
-      const relative = new Intl.RelativeTimeFormat(locale.language, { numeric: 'auto' })
       const index = await ui?.choose(`${t('Conversations')} · ${t(all ? 'All projects' : 'Current project')}`, [
-        t('+ New conversation'), ...sessions.map(item => `${item.running ? '▶ ' : ''}${item.title ?? t('Untitled')} · ${relative.format(Math.min(0, Math.round((item.updatedAt - Date.now()) / 60000)), 'minute')} · ${item.id}`),
+        t('+ New conversation'), ...sessions.map((item) => {
+          const label = `${item.running ? '▶ ' : ''}${item.title ?? t('Untitled')}`
+          const where = all && item.cwd !== undefined ? ` · ${item.cwd}` : ''
+          return { label, description: `${relativeAge(item.updatedAt, locale.language)}${where} · ${item.id}`, search: `${label} ${item.id}` }
+        }),
         t(all ? 'Current project' : 'All projects'), t('Search conversation content'),
       ], lifetime.signal)
       if (index === undefined) return
@@ -198,6 +219,18 @@ export function apply(ctx: Context, config: Config): void {
       else { const session = sessions[index - 1]; if (session !== undefined) await select(session.id) }
       return
     }
+  }
+  const chooseSkill = async (): Promise<void> => {
+    const id = selected
+    if (ui === undefined || id === undefined) return
+    const catalog = await backend().skills(id, lifetime.signal)
+    if (selected !== id) return
+    skills = catalog
+    ui.banner({ skills: catalog })
+    if (catalog.length === 0) { ui.status(t('No skills are available for this conversation')); return }
+    const index = await ui.choose(t('Skills'), catalog.map(skill => ({ label: skill.name, description: skill.description })), lifetime.signal)
+    const skill = index === undefined ? undefined : catalog[index]
+    if (skill !== undefined) ui.compose(`/${skill.name} `)
   }
   const inspectTools = async (): Promise<void> => { if (ui !== undefined) await browseTools(ui, transcript, lifetime.signal) }
   const send = async (text: string): Promise<void> => {
@@ -223,7 +256,14 @@ export function apply(ctx: Context, config: Config): void {
         if (title !== undefined) { await backend().rename(id, title); ui.status(t('Conversation renamed')) }
       } else if (command === '/fork') {
         if (await ui.choose(t('Fork from the latest completed turn?'), [t('Cancel'), t('Fork')], lifetime.signal) === 1) await select(await backend().fork(id))
-      } else if (command === '/export') await saveLog(ui, backend(), id, lifetime.signal)
+      } else if (command === '/export') {
+        const path = await askExportPath(ui, id, lifetime.signal)
+        if (path !== undefined) {
+          ui.status(t('Exporting…'))
+          // Detached so a long download does not block sending or recovery; the file is removed if it fails.
+          run(async () => { await exportArchive(backend(), id, path, lifetime.signal); ui?.status(t('Saved to {path}', { path })) })
+        }
+      }
       else if (command === '/language') {
         const choice = await ui.choose(t('Language'), ['English', '简体中文'], lifetime.signal, locale.language === 'en' ? 0 : 1)
         if (choice !== undefined) { locale.language = choice === 0 ? 'en' : 'zh'; ui.relocalize(); await controls?.select(id) }
@@ -234,7 +274,7 @@ export function apply(ctx: Context, config: Config): void {
       else { ui.status(t('Reconnecting…')); backend().reconnect() }
       return
     }
-    if (['/new', '/clear', '/resume', '/tools', '/help', '/exit', '/web'].includes(command ?? '')) {
+    if (['/new', '/clear', '/resume', '/tools', '/skills', '/help', '/exit', '/web'].includes(command ?? '')) {
       ui?.accepted()
       if (command === '/new' || command === '/clear') await create()
       else if (command === '/web') await ui?.view(t('Browser sign-in link'), `${backend().url}\n\n${t('Open it in a browser to configure providers and credentials. Treat it like a password.')}`, lifetime.signal)
@@ -242,8 +282,9 @@ export function apply(ctx: Context, config: Config): void {
         if (argument === undefined) await pick()
         else await select(SessionId(argument))
       } else if (command === '/tools') await inspectTools()
+      else if (command === '/skills') await chooseSkill()
       else if (command === '/help') await ui?.view(t('Commands'),
-        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}`, lifetime.signal)
+        `${t('Enter send · Shift+Enter new line · ↑↓ edit/history')}\n${t('Ctrl-N new · Ctrl-R resume · Ctrl-O tools · Ctrl-C stop (twice to exit) · Ctrl-Q exit')}\n${t('@ inserts a project file path; the model can read it with its file tools.')}\n\n${terminalCommands.map(item => `/${item.name} — ${locale.description(item.description ?? '')}`).join('\n')}${skills.length === 0 ? '' : `\n\n${t('Skills')}\n\n${skills.map(skill => `/${skill.name}${skill.description === '' ? '' : ` — ${skill.description}`}`).join('\n')}`}`, lifetime.signal)
       else exit(0)
       return
     }
@@ -367,6 +408,7 @@ export function apply(ctx: Context, config: Config): void {
           tools: () => { serialize(inspectTools) }, exit: () => { exit(0) },
         }, config.completionDepth, config.completionFiles, tints, locale)
         ui.layout(config.statusLayout)
+        ui.banner({ version })
         const startupSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.startupTimeoutMs)])
         const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, config.startupTimeoutMs,
           config.shutdownTimeoutMs, lifetime.signal, text => ui?.status(text))).url
@@ -388,9 +430,15 @@ export function apply(ctx: Context, config: Config): void {
           connected = state === 'connected'
           ui?.connection(connected)
           if (!connected) { follower?.abort(); liveControls?.abort(); return }
-          serialize(async () => { startControls(); if (selected !== undefined) await select(selected) })
+          // Not serialized: an open picker or reader must not defer recovery of the stopped follower and controls.
+          run(async () => { startControls(); if (selected !== undefined) await select(selected) })
         })
         title()
+        run(async () => {
+          const here = await sessionsIn(process.cwd(), await backend().listSessions(lifetime.signal))
+          const [latest] = here.filter(item => item.title !== undefined).toSorted((a, b) => b.updatedAt - a.updatedAt)
+          if (latest?.title !== undefined) ui?.banner({ last: { title: latest.title, updatedAt: latest.updatedAt } })
+        })
         serialize(async () => {
           if (config.session !== undefined) await select(SessionId(config.session))
           else await create()

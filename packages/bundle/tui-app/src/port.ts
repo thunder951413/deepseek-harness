@@ -41,6 +41,12 @@ export interface PendingMessage {
   readonly target: 'next-turn' | 'next-step'
 }
 
+/** One skill the human can invoke by typing `/name` at the start of a message. */
+export interface SkillSummary {
+  readonly name: string
+  readonly description: string
+}
+
 /** One durable event from a Session journal. */
 export interface JournalEvent {
   readonly type: string
@@ -177,6 +183,8 @@ export interface PortQuestionRequest {
 /** Optional features, set once at connection from what the Harness answered. */
 export interface Capabilities {
   readonly search: boolean
+  /** Skill catalog. */
+  readonly skills: boolean
   readonly management: boolean
   readonly queue: boolean
   readonly export: boolean
@@ -197,6 +205,11 @@ export interface HarnessPort {
    * @param signal - cancellation.
    * @returns matching identities and excerpts, plus whether more matches exist. */
   search(query: string, signal: AbortSignal): Promise<{ items: readonly { id: SessionId; snippet: string }[]; hasMore: boolean }>
+  /** List the skills a message can invoke with a leading `/name`.
+   * @param sessionId - conversation whose directory and preset select the catalog.
+   * @param signal - cancellation.
+   * @returns user-invocable skills in the Harness's order; throws `Unsupported` when the Harness has no skill catalog. */
+  skills(sessionId: SessionId, signal: AbortSignal): Promise<SkillSummary[]>
   /** Rename a conversation.
    * @param sessionId - conversation.
    * @param title - nonempty display title.

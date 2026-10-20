@@ -176,7 +176,7 @@ it('marks clipped tool output and records the sanitized argument split', () => {
   const transcript = new TerminalTranscript(90)
   transcript.accept(event('tool/call', { name: 'bash', callId: 'a', arguments: '{"command":"ls"}' }, 1))
   transcript.accept(event('tool/result', { message: { toolCallId: 'a', content: [{ type: 'text', text: 'x'.repeat(200) }] } }, 2))
-  expect(transcript.view().truncated).toBe(true)
+  expect(transcript.view().clipped).toBe(true)
   const call = transcript.view().entries[0]?.group?.calls[0]
   expect(call).toMatchObject({ argumentLength: 16, truncated: true })
   expect(call?.details.slice(0, call.argumentLength)).toBe('{"command":"ls"}')

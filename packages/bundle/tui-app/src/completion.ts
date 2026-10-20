@@ -18,7 +18,7 @@ export const terminalCommands: SlashCommand[] = [
   { name: 'web', description: 'Show the browser sign-in link' },
   { name: 'tools', description: 'Inspect tool arguments and output' },
   ...[
-    ['queue', 'Manage pending messages'], ['steer', 'Send an instruction at the next model step'],
+    ['skills', 'Choose a skill to start the message with'], ['queue', 'Manage pending messages'], ['steer', 'Send an instruction at the next model step'],
     ['search', 'Search conversation content'], ['rename', 'Rename conversation'], ['fork', 'Fork from the latest completed turn'],
     ['export', 'Export the full Session ZIP'], ['history', 'Load older history'], ['language', 'Choose interface language'],
     ['layout', 'Choose status density'], ['reconnect', 'Reconnect to the Harness'],
@@ -106,6 +106,19 @@ export class ProjectCompletion implements AutocompleteProvider {
     return files
   }
 
+  /** List one explicitly named (possibly hidden) directory; a directory that does not exist yet has no entries. */
+  private async listNamed(parent: string): Promise<string[]> {
+    let entries: Dirent[]
+    try {
+      entries = await readEntries(resolve(this.directory, parent), { withFileTypes: true })
+    } catch (error) {
+      // The user is still typing the directory name, so a missing or non-directory path is an empty result.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return []
+      throw error
+    }
+    return entries.map(entry => posix.join(parent, entry.name) + (entry.isDirectory() ? '/' : '')).sort()
+  }
+
   private async suggestions(...[lines, cursorLine, cursorCol, options]: Parameters<AutocompleteProvider['getSuggestions']>) {
     const generation = this.generation
     if (this.cancelled(options.signal, generation)) return null
@@ -113,18 +126,21 @@ export class ProjectCompletion implements AutocompleteProvider {
     const prefix = /(?:^|\s)(@"[^"]*|@[^\s"]*)$/u.exec(before)?.[1]
     try {
       if (prefix === undefined) {
+        this.state?.('')
         const suggestions = await this.provider.getSuggestions(lines, cursorLine, cursorCol, options)
         return this.cancelled(options.signal, generation) ? null : suggestions
       }
       const query = prefix.replace(/^@"?/u, '')
-      this.state?.(this.locale.text('Indexing project files…'))
       const explicit = query.split('/').some(part => part.startsWith('.') && part !== '.' && part !== '..')
-      const parent = query.endsWith('/') ? query : dirname(query)
-      const files = explicit ? (await readEntries(resolve(this.directory, parent), { withFileTypes: true }))
-        .map(entry => posix.join(parent, entry.name) + (entry.isDirectory() ? '/' : '')).sort().slice(0, this.limit)
+      if (explicit || this.files === undefined) this.state?.(this.locale.text('Indexing project files…'))
+      const files = explicit ? await this.listNamed(query.endsWith('/') ? query : dirname(query))
         : await (this.files ??= this.discover(options.signal, generation))
-      if (this.cancelled(options.signal, generation)) return null
-      const items = fuzzyFilter(files, query, path => path).map(path => ({
+      if (this.cancelled(options.signal, generation)) {
+        // An aborted request with no newer one leaves the editor without a pending completion.
+        if (generation === this.generation) this.state?.('')
+        return null
+      }
+      const items = fuzzyFilter(files, query, path => path).slice(0, this.limit).map(path => ({
         value: /\s|["\u0000-\u001f\u007f-\u009f]/u.test(path) ? `@${JSON.stringify(path)}` : `@${path}`,
         label: /[\u0000-\u001f\u007f-\u009f]/u.test(path) ? JSON.stringify(path) : path,
       }))

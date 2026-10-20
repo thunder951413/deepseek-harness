@@ -45,11 +45,11 @@ export function balanceText(balance: BalanceReading, locale = new TerminalLocale
  * @param selection - next request's selection, or the deployment default for a blank Session.
  * @param balance - account wallet query outcome.
  * @param locale - terminal interface language.
- * @returns compact status and a detailed statistics panel.
+ * @returns compact status, a detailed statistics panel, and the `model · effort` label (undefined until a model is selected).
  */
 export function sessionReadings(
   values: Readings, selection: ModelChoice | undefined, balance: BalanceReading, locale = new TerminalLocale(),
-): { compact: string; details: string } {
+): { compact: string; details: string; model: string | undefined } {
   const stats = values.stats
   const usage = values.usage
   const input = usage === undefined ? undefined : usage.uncachedInput + usage.cacheRead + usage.cacheWrite
@@ -68,5 +68,6 @@ export function sessionReadings(
     `${locale.text('Average first token')}: ${stats !== undefined && stats.ttftSteps > 0 ? `${Math.round(stats.ttftMs / stats.ttftSteps)} ms` : locale.text('Unavailable')}`,
     locale.text('Balance is the signed-in DeepSeek account; configure providers and credentials in Web.'),
   ].join('\n')
-  return { compact, details }
+  return { compact, details, model: selection === undefined ? undefined
+    : selection.reasoningEffort === undefined ? model : `${model} · ${selection.reasoningEffort}` }
 }

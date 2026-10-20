@@ -1,5 +1,6 @@
 /** Main-screen terminal conversation, multiline editing, and foreground human input. */
 import { DetailView } from './detail-view.ts'
+import { WelcomeBanner, type WelcomeInfo } from './welcome.ts'
 import { TerminalLocale } from './locale.ts'
 import { Console } from 'node:console'
 import { Writable } from 'node:stream'
@@ -42,14 +43,16 @@ class StatusBar implements Component {
   right: StatusItem[] = []
   connected = true
   truncated = false
+  clipped = false
   queued: number | undefined
   layout: 'auto' | 'compact' | 'detailed' = 'auto'
   constructor(private readonly locale: TerminalLocale) {}
   render(width: number): string[] {
     const hint = color.dim(`${this.queued === undefined || this.queued === 0 ? '' : `${this.locale.text('Pending messages')}: ${this.queued} · /queue · `}${this.locale.text('/ commands · @ files · ↑ history · Ctrl-C stop · Ctrl-Q exit')}`)
     const connection = this.connected ? [] : [color.red(this.locale.text('Disconnected · /reconnect to retry'))]
-    if (this.truncated) connection.push(color.yellow(truncateToWidth(
-      this.locale.text('Recent history only · /history loads more · /export downloads the complete log'), width)))
+    if (this.truncated || this.clipped) connection.push(color.yellow(truncateToWidth(this.locale.text(this.truncated
+      ? 'Recent history only · /history loads more · /export downloads the complete log'
+      : 'Some output is clipped in this view · /export downloads the complete log'), width)))
     const rows = [...connection, ...renderStatus([...this.readings, hint], this.right, width, color.dim)]
     if (this.layout === 'detailed' || (this.layout === 'auto' && rows.length - connection.length <= this.readings.length + 1)) return rows
     return [...connection, truncateToWidth(this.readings[0] ?? '', width),
@@ -131,21 +134,37 @@ class MessageBlock extends Container {
   }
 }
 
+/** A menu item: plain text, or a name with a description shown dimmed in an aligned second column. */
+export type Choice = string | {
+  readonly label: string
+  readonly description: string
+  /** Text the filter matches; omitted matches the label alone. */
+  readonly search?: string
+}
+
+/** Widest name column of a menu with descriptions; longer names are truncated. */
+const NAME_COLUMN_MAX = 36
+
 class InlineChoice extends Container implements Focusable {
   private readonly search: Input
   private list: SelectList
-  private readonly items: SelectItem[]
+  private readonly items: (SelectItem & { readonly search: string })[]
   private query = ''
   private hasFocus = false
   get focused(): boolean { return this.hasFocus }
   set focused(value: boolean) { this.hasFocus = value; this.search.focused = value }
 
-  constructor(title: string, choices: readonly string[], private readonly rows: number,
+  constructor(title: string, choices: readonly Choice[], private readonly rows: number,
     private readonly select: (index: number) => void, private readonly cancel: () => void,
     private readonly locale: TerminalLocale, initial: number) {
     super()
     this.search = new Input({ prompt: locale.text('Find: '), placeholder: locale.text('type to filter · ↑↓ select · Enter confirm · Esc cancel') })
-    this.items = choices.map((label, index) => ({ value: String(index), label: terminalText(label) }))
+    this.items = choices.map((choice, index) => {
+      if (typeof choice === 'string') return { value: String(index), label: terminalText(choice), search: terminalText(choice) }
+      const label = terminalText(choice.label)
+      return { value: String(index), label, search: terminalText(choice.search ?? choice.label),
+        ...choice.description === '' ? {} : { description: terminalText(choice.description) } }
+    })
     this.list = this.makeList('')
     this.list.setSelectedIndex(initial)
     this.addChild(new Markdown(terminalText(title), 0, 0, markdownTheme))
@@ -168,7 +187,8 @@ class InlineChoice extends Container implements Focusable {
   }
 
   private makeList(query: string): SelectList {
-    const list = new SelectList(fuzzyFilter(this.items, query, item => item.label), Math.max(3, Math.min(8, this.rows - 8)), { ...selectTheme, noMatch: () => color.yellow(this.locale.text('No matches')) })
+    const list = new SelectList(fuzzyFilter(this.items, query, item => item.search), Math.max(3, Math.min(8, this.rows - 8)),
+      { ...selectTheme, noMatch: () => color.yellow(this.locale.text('No matches')) }, { minPrimaryColumnWidth: 1, maxPrimaryColumnWidth: NAME_COLUMN_MAX })
     list.onSelect = (item) => { this.select(Number(item.value)) }
     list.onCancel = this.cancel
     return list
@@ -196,6 +216,7 @@ export class TerminalUi {
   private readonly terminal = new ScrollbackTerminal()
   private readonly tui = new TuiMainScreen(this.terminal, true)
   private readonly bar: StatusBar
+  private readonly welcome: WelcomeBanner
   private readonly messages = new Container()
   private readonly live = new Container()
   private readonly liveMarkdown = new Markdown('', 0, 1, markdownTheme)
@@ -222,6 +243,8 @@ export class TerminalUi {
   private working = false
   private waiting: 'Waiting for approval' | 'Waiting for answer' | undefined
   private workTimer: ReturnType<typeof setInterval> | undefined
+  private readonly bannerTimer: ReturnType<typeof setInterval>
+  private animating = true
   private showTimer: ReturnType<typeof setTimeout> | undefined
   private queuedView: TerminalView | undefined
   private lastInterrupt = 0
@@ -238,6 +261,8 @@ export class TerminalUi {
   constructor(actions: TerminalActions, completionDepth: number, completionFiles: number,
     backgrounds: Tints, readonly locale = new TerminalLocale()) {
     this.bar = new StatusBar(locale)
+    this.welcome = new WelcomeBanner(locale, () => this.terminal.rows)
+    this.welcome.info = { ...this.welcome.info, commands: terminalCommands.map(command => ({ name: command.name, description: command.description ?? '' })) }
     this.panel = new ActivityPanel(locale)
     this.paint = inputBackground(backgrounds.input)
     this.painters = { user: blockBackground(backgrounds.user), assistant: blockBackground(backgrounds.assistant),
@@ -261,7 +286,9 @@ export class TerminalUi {
     } })
     this.editorBox = this.inputBox(this.editor)
     this.interaction.addChild(this.editorBox)
-    for (const child of [this.messages, this.live, this.interaction, this.completionNotice, this.notice, this.bar]) this.tui.addChild(child)
+    for (const child of [this.welcome, this.messages, this.live, this.interaction, this.completionNotice, this.notice, this.bar]) {
+      this.tui.addChild(child)
+    }
     this.tui.addInputListener((data) => {
       if (matchesKey(data, 'ctrl+q') || (matchesKey(data, 'ctrl+d') && this.editor.getText() === '' && this.pending === undefined)) {
         actions.exit(); return { consume: true }
@@ -285,6 +312,11 @@ export class TerminalUi {
       }
       return undefined
     })
+    this.bannerTimer = setInterval(() => {
+      if (!this.animating || this.closed) return
+      this.welcome.frame += 1
+      this.tui.requestRender()
+    }, 450)
     try {
       globalThis.console = new Console({ stdout: this.diagnostics, stderr: this.diagnostics })
       this.tui.setClearOnShrink(false)
@@ -294,6 +326,7 @@ export class TerminalUi {
       globalThis.console = this.previousConsole
       this.tui.stop()
       this.diagnostics.destroy()
+      clearInterval(this.bannerTimer)
       throw error
     }
   }
@@ -320,6 +353,8 @@ export class TerminalUi {
     }
     this.selected = id
     this.directory = directory
+    this.animating = true
+    this.banner({ directory })
     this.bar.right = [
       { text: terminalText(`DeepSeek Harness · ${id}`), keep: 'start' },
       { text: terminalText(directory), keep: 'end' },
@@ -369,7 +404,9 @@ export class TerminalUi {
     }
     if (!view.working && this.workTimer !== undefined) { clearInterval(this.workTimer); this.workTimer = undefined }
     this.lastView = view
+    this.animating = view.entries.length === 0 && !view.working && view.live === ''
     this.bar.truncated = view.truncated === true
+    this.bar.clipped = view.clipped === true
     this.working = view.working
     this.panel.working = view.working
     this.panel.activity = { ...view.activity, ...this.waiting === undefined ? {} : { phase: this.waiting } }
@@ -395,10 +432,20 @@ export class TerminalUi {
     this.tui.requestRender()
   }
 
-  /** Update the compact model, usage, and balance status.
-   * @param text - current projection readings. */
-  metrics(text: string): void {
+  /** Change the facts shown in the start-of-conversation banner.
+   * @param info - the fields to replace. */
+  banner(info: Partial<WelcomeInfo>): void {
     if (this.closed) return
+    this.welcome.info = { ...this.welcome.info, ...info }
+    this.tui.requestRender()
+  }
+
+  /** Update the compact model, usage, and balance status.
+   * @param text - current projection readings.
+   * @param model - `model · effort` label for the banner; omitted leaves the banner unchanged. */
+  metrics(text: string, model?: string): void {
+    if (this.closed) return
+    if (model !== undefined) this.welcome.info = { ...this.welcome.info, model }
     this.bar.readings = terminalText(text).replace(`\n${this.locale.text('Balance')}:`, ` · ${this.locale.text('Balance')}:`).split('\n').map(line => color.dim(line))
     this.tui.requestRender()
   }
@@ -419,12 +466,12 @@ export class TerminalUi {
   /**
    * Ask an inline searchable question while preserving the main editor draft.
    * @param title - question and its supporting details.
-   * @param choices - available labels in stable index order.
+   * @param choices - available items in stable index order; items with descriptions align them in a second column.
    * @param signal - application or interaction cancellation.
    * @param initial - initially selected item; omission selects the first item.
    * @returns original selected index, or undefined after dismissal.
    */
-  choose(title: string, choices: readonly string[], signal: AbortSignal, initial = 0): Promise<number | undefined> {
+  choose(title: string, choices: readonly Choice[], signal: AbortSignal, initial = 0): Promise<number | undefined> {
     if (this.closed || signal.aborted) return Promise.resolve(undefined)
     this.pending?.()
     return new Promise((resolve) => {
@@ -486,6 +533,14 @@ export class TerminalUi {
       this.tui.setFocus(input)
       this.tui.requestRender()
     })
+  }
+
+  /** Replace the composer draft and focus it, for a command that prepares a message.
+   * @param text - new draft; the caret moves to its end. */
+  compose(text: string): void {
+    if (this.closed) return
+    this.editor.setText(text)
+    this.tui.requestRender()
   }
 
   /** Display the current pending-message count.
@@ -563,6 +618,7 @@ export class TerminalUi {
     if (this.closing !== undefined) return this.closing
     this.closed = true
     clearInterval(this.workTimer)
+    clearInterval(this.bannerTimer)
     clearTimeout(this.showTimer)
     globalThis.console = this.previousConsole
     this.pending?.()

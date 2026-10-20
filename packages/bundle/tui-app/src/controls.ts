@@ -40,7 +40,7 @@ export class TerminalControls {
   private render(): void {
     if (this.signal.aborted) return
     const reading = sessionReadings(this.values, this.current(), this.balance, this.locale)
-    this.ui.metrics(this.projectionError === undefined ? reading.compact : `${reading.compact}\n${this.projectionError}`)
+    this.ui.metrics(this.projectionError === undefined ? reading.compact : `${reading.compact}\n${this.projectionError}`, reading.model)
   }
 
   /**
@@ -53,6 +53,7 @@ export class TerminalControls {
     this.values = {}
     this.projectionError = undefined
     this.render()
+    this.ui.queueCount(undefined)
     await Promise.all([this.refreshProjections(), this.refreshQueue()])
   }
 
@@ -79,15 +80,12 @@ export class TerminalControls {
     const id = this.selected
     if (id === undefined) return
     const generation = ++this.queueGeneration
-    this.ui.queueCount(undefined)
     try {
       const messages = await this.ctx.queue(id, this.signal)
       if (generation === this.queueGeneration && id === this.selected && !this.cancelled()) this.ui.queueCount(messages.length)
-    } catch (error) {
-      // Queue controls report actionable failures when opened; stale counts remain hidden.
-      if (!(error instanceof Unsupported) && !this.cancelled() && id === this.selected && generation === this.queueGeneration) {
-        this.ui.queueCount(undefined)
-      }
+    } catch {
+      // Queue controls report actionable failures when opened; a count that cannot be refreshed is hidden.
+      if (!this.cancelled() && id === this.selected && generation === this.queueGeneration) this.ui.queueCount(undefined)
     }
   }
 
@@ -116,7 +114,7 @@ export class TerminalControls {
   async watchSessions(): Promise<void> {
     try {
       for await (const change of this.ctx.watchReadings(this.signal)) {
-        if (change.sessionId === undefined || (change.sessionId === this.selected && change.key === 'inbox')) await this.refreshQueue()
+        if (change.sessionId === undefined || (change.sessionId === this.selected && change.key === 'inbox')) void this.refreshQueue()
         if (change.sessionId === undefined || (change.sessionId === this.selected && change.key !== undefined
           && ['modelSelection', 'sessionStats', 'tokenUsage'].includes(change.key))) await this.refreshProjections()
       }

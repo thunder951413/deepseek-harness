@@ -15,8 +15,7 @@ import sessionInfo from '@deepseek-ai/dsh-api-session-controller/remote'
 import workspaceInfo from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import accountInfo from '@deepseek-ai/dsh-api-account-controller/remote'
 import questionInfo from '@deepseek-ai/dsh-user-questions/remote'
-import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -29,7 +28,7 @@ import {
 } from './port.ts'
 import {
   readBalance, readCatalog, readControlFrame, readCreated, readFollowFrame, readReadings, readSessionList,
-  readWorkspaceId, readQueue, readSearch,
+  readWorkspaceId, readQueue, readSearch, readSkills,
 } from './readers.ts'
 import { approvalCallText } from './wire-transcript.ts'
 
@@ -64,7 +63,8 @@ export class WebRemotePort implements HarnessPort {
   private readonly client = new Context()
   private readonly scopes = new WeakMap<object, WireSessionId>()
   private readonly features: { -readonly [Key in keyof Capabilities]: boolean } =
-    { models: true, readings: true, balance: true, questions: true, search: true, management: true, queue: true, export: true }
+    { models: true, readings: true, balance: true, questions: true, search: true, skills: true, management: true, queue: true,
+      export: true }
   private connection: ConnectionHandle | undefined
   private startupSignal: AbortSignal | undefined
   private readonly lifetime = new AbortController()
@@ -220,6 +220,10 @@ export class WebRemotePort implements HarnessPort {
 
   async search(query: string, signal: AbortSignal) {
     return readSearch(this.optional('search', 'session/search', await this.remote().session.search({ query }, signal)))
+  }
+
+  async skills(sessionId: SessionId, signal: AbortSignal) {
+    return readSkills(this.optional('skills', 'skills/list', await this.remote().skills.list({ sessionId: wire(sessionId) }, signal)))
   }
 
   async rename(sessionId: SessionId, title: string): Promise<void> {

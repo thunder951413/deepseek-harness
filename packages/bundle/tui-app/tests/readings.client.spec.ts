@@ -41,3 +41,9 @@ it('rounds amounts to cents without floating point, halves away from zero, and k
   expect(cents('123456789012345678.999')).toBe('123456789012345679.00')
   expect(cents('n/a')).toBe('n/a')
 })
+
+it('labels the banner model with its reasoning effort only when one is selected', () => {
+  expect(sessionReadings({}, { provider: 'test', model: 'm', reasoningEffort: 'high' }, null).model).toBe('test/m · high')
+  expect(sessionReadings({}, { provider: 'test', model: 'm' }, null).model).toBe('test/m')
+  expect(sessionReadings({}, undefined, null).model).toBeUndefined()
+})

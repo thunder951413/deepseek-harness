@@ -65,8 +65,10 @@ export interface TerminalActivity {
 
 /** Recent settled blocks and the unfinished assistant text. */
 export interface TerminalView {
-  /** Earlier history or tool output was omitted from this view. */
+  /** The Host has older history than this view loaded; `/history` loads more. */
   readonly truncated?: boolean
+  /** Retained text or tool output was clipped locally; only `/export` has the complete log. */
+  readonly clipped?: boolean
   readonly entries: readonly TerminalEntry[]
   readonly live: string
   readonly working: boolean

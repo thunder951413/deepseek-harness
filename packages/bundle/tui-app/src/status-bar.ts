@@ -12,7 +12,13 @@ export interface StatusItem {
   readonly keep: 'start' | 'end'
 }
 
-function fit(item: StatusItem, width: number): string {
+/**
+ * Fit one item into a width, keeping the end the item names.
+ * @param item - plain text and the end that survives truncation.
+ * @param width - available columns.
+ * @returns the text unchanged when it fits, otherwise truncated with an ellipsis at the dropped end.
+ */
+export function fit(item: StatusItem, width: number): string {
   if (visibleWidth(item.text) <= width) return item.text
   if (item.keep === 'start') return truncateToWidth(item.text, width)
   let tail = item.text

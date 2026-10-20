@@ -1,6 +1,7 @@
 /** Local conversation commands over optional Harness services. */
 import { open, unlink } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import type { HarnessPort, SessionId } from './port.ts'
 import type { TerminalUi } from './ui.ts'
 import type { TerminalView } from './transcript.ts'
@@ -17,12 +18,12 @@ export async function exportArchive(port: Pick<HarnessPort, 'exportLog'>, id: Se
     for await (const chunk of port.exportLog(id, signal)) { signal.throwIfAborted(); await file.writeFile(chunk) }
     signal.throwIfAborted()
     await file.sync()
-  } catch (error) {
     await file.close()
+  } catch (error) {
+    await Promise.allSettled([file.close()])
     await unlink(path)
     throw error
   }
-  await file.close()
 }
 
 /** Browse retained tools, preserving selection when closing an argument/output reader.
@@ -73,18 +74,15 @@ export async function manageQueue(ui: TerminalUi, port: HarnessPort, id: Session
   }
 }
 
-/** Collect a destination and save the complete persisted log.
- * @param ui - terminal input and feedback.
- * @param port - archive service.
+/** Collect the destination for a complete Session log.
+ * @param ui - terminal input.
  * @param id - selected conversation.
  * @param signal - cancellation.
- * @returns after export or cancellation. */
-export async function saveLog(ui: TerminalUi, port: HarnessPort, id: SessionId, signal: AbortSignal): Promise<void> {
+ * @returns an absolute path (`~/` expands to the home directory), or undefined after dismissal. */
+export async function askExportPath(ui: TerminalUi, id: SessionId, signal: AbortSignal): Promise<string | undefined> {
   const t = ui.locale.text.bind(ui.locale)
-  const destination = await ui.ask(t('Export destination (.zip); existing files are not overwritten'), signal,
-    resolve(`dsh-${id.replace(/[^a-zA-Z0-9_-]/gu, '_')}.zip`))
-  if (destination === undefined) return
-  const path = resolve(destination)
-  await exportArchive(port, id, path, signal)
-  ui.status(t('Saved to {path}', { path }))
+  const destination = (await ui.ask(t('Export destination (.zip); existing files are not overwritten'), signal,
+    resolve(`dsh-${id.replace(/[^a-zA-Z0-9_-]/gu, '_')}.zip`)))?.trim()
+  if (destination === undefined || destination === '') return undefined
+  return resolve(destination.startsWith('~/') ? join(homedir(), destination.slice(2)) : destination)
 }

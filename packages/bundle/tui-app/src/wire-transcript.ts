@@ -68,7 +68,7 @@ export class TerminalTranscript {
   private turnFailed = 0
   private latest: ToolCall | undefined
   private todoEntry: TerminalEntry | undefined
-  private truncated = false
+  private clipped = false
   private phase: NonNullable<TerminalView['activity']['phase']> = 'Waiting for model'
 
   /** @param maxCharacters - maximum retained text and tool-detail characters.
@@ -77,14 +77,14 @@ export class TerminalTranscript {
 
   /** Reset the display projection when changing conversations. */
   reset(): void {
-    this.truncated = false; this.phase = 'Waiting for model'
+    this.clipped = false; this.phase = 'Waiting for model'
     this.entries = []; this.live = ''; this.working = false; this.characters = 0
     this.hiddenCalls.clear(); this.todoEntry = undefined
     this.group = undefined; this.turnCalls = 0; this.turnFailed = 0; this.latest = undefined
   }
 
   private fit(draft: Draft): Draft {
-    if (draft.text.length + (draft.details?.length ?? 0) > this.maxCharacters) this.truncated = true
+    if (draft.text.length + (draft.details?.length ?? 0) > this.maxCharacters) this.clipped = true
     const body = terminalText(draft.text).slice(0, this.maxCharacters)
     const details = draft.details === undefined ? undefined
       : terminalText(draft.details).slice(0, Math.max(0, this.maxCharacters - body.length))
@@ -97,11 +97,11 @@ export class TerminalTranscript {
     const fitted = calls.map((call) => {
       const details = terminalText(call.details).slice(0, Math.max(0, this.maxCharacters - used - call.title.length))
       const truncated = call.truncated === true || details.length < terminalText(call.details).length
-      if (truncated) this.truncated = true
+      if (truncated) this.clipped = true
       return { ...call, details, ...truncated ? { truncated: true } : {} }
     })
     const total = (): number => fitted.reduce((sum, call) => sum + call.title.length + call.details.length, used)
-    while (fitted.length > 1 && total() > this.maxCharacters) { fitted.shift(); this.truncated = true }
+    while (fitted.length > 1 && total() > this.maxCharacters) { fitted.shift(); this.clipped = true }
     return fitted
   }
 
@@ -135,7 +135,7 @@ export class TerminalTranscript {
 
   private trim(): void {
     while (this.characters > this.maxCharacters && this.entries.length > 1) {
-      this.truncated = true
+      this.clipped = true
       for (const removed of this.entries.splice(0, 1)) this.characters -= size(removed)
     }
   }
@@ -189,7 +189,7 @@ export class TerminalTranscript {
         this.turnCalls += 1
         const open = this.group
         const before = open?.group ?? { calls: [], count: 0, failed: 0 }
-        if (before.calls.length >= GROUP_CALLS) this.truncated = true
+        if (before.calls.length >= GROUP_CALLS) this.clipped = true
         const draft = groupDraft({ calls: [...before.calls, call], count: before.count + 1, failed: before.failed })
         const next = open === undefined ? undefined : this.replace(open, draft)
         if (next === undefined) this.group = this.append(event, draft)
@@ -240,7 +240,7 @@ export class TerminalTranscript {
       const run = record(item)
       return run.type === 'text-chunks' ? list(run.texts).map(text).join('') : ''
     }).join('')
-    this.truncated ||= restored.length > this.maxCharacters
+    this.clipped ||= restored.length > this.maxCharacters
     this.live = restored.slice(-this.maxCharacters)
   }
 
@@ -255,7 +255,7 @@ export class TerminalTranscript {
       const chunk = record(frame.chunk)
       if (chunk.type === 'text-delta') {
         this.phase = 'Receiving response'
-        if (this.live.length + text(chunk.text).length > this.maxCharacters) this.truncated = true
+        if (this.live.length + text(chunk.text).length > this.maxCharacters) this.clipped = true
         this.live = (this.live + text(chunk.text)).slice(-this.maxCharacters)
       }
     }
@@ -265,7 +265,7 @@ export class TerminalTranscript {
    * @returns settled blocks and sanitized unfinished text. */
   view(): TerminalView {
     return { entries: this.entries, live: terminalText(this.live), working: this.working,
-      ...this.truncated ? { truncated: true } : {},
+      ...this.clipped ? { clipped: true } : {},
       activity: { phase: this.phase, calls: this.turnCalls, failed: this.turnFailed,
         ...this.latest === undefined ? {} : { latest: this.latest } } }
   }
