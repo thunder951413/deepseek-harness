@@ -11,6 +11,8 @@ import { WebRemotePort } from './web-remote.ts'
 import { createRequire } from 'node:module'
 import { observe } from './conversation.ts'
 import { sessionsIn } from './history.ts'
+import { chooseTints } from './appearance.ts'
+import { queryBackground } from './background-query.ts'
 import { startServer, type TerminalServer } from './server.ts'
 
 /** Stable terminal plugin identity. */
@@ -42,13 +44,15 @@ export interface Config {
   completionFiles: number
   /** Reasoning effort applied to a new conversation when its model offers it; empty keeps the model's own default. */
   defaultReasoningEffort: string
-  /** `#rrggbb` color behind the input block; empty disables it. Use a light color on light terminals. */
+  /** `auto` tints blocks from the terminal's reported background; `dark` and `light` assume a typical one. */
+  appearance: 'auto' | 'dark' | 'light'
+  /** `#rrggbb` color behind the input block; empty uses the tint derived from the background. */
   inputBackground: string
-  /** `#rrggbb` tint behind your messages; empty disables it. Needs a 256-color terminal. */
+  /** `#rrggbb` tint behind your messages; empty uses the derived tint. Needs a 256-color terminal. */
   userBackground: string
-  /** `#rrggbb` tint behind the assistant's answers; empty disables it. Needs a 256-color terminal. */
+  /** `#rrggbb` tint behind the assistant's answers; empty uses the derived tint. Needs a 256-color terminal. */
   assistantBackground: string
-  /** `#rrggbb` tint behind tool activity and task lists; empty disables it. Needs a 256-color terminal. */
+  /** `#rrggbb` tint behind tool activity and task lists; empty uses the derived tint. Needs a 256-color terminal. */
   toolBackground: string
 }
 
@@ -65,10 +69,11 @@ export const Config: z<Config> = z.object({
   completionDepth: z.natural().min(1).default(8),
   completionFiles: z.natural().min(1).default(10000),
   defaultReasoningEffort: z.string().default('high'),
-  inputBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#2b2f38'),
-  userBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#212a38'),
-  assistantBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#1c2028'),
-  toolBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default('#1f2621'),
+  appearance: z.union(['auto', 'dark', 'light'] as const).default('auto'),
+  inputBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default(''),
+  userBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default(''),
+  assistantBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default(''),
+  toolBackground: z.string().pattern(/^(?:#[0-9a-fA-F]{6})?$/u).default(''),
 })
 
 /**
@@ -284,13 +289,16 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ready.onReady(() => {
     run(async () => {
       try {
+        const detected = config.appearance === 'auto' && process.env.NO_COLOR === undefined
+          ? await queryBackground(process.stdin, process.stdout) : undefined
+        const tints = chooseTints({ appearance: config.appearance, detected, env: process.env, overrides: {
+          input: config.inputBackground, user: config.userBackground, assistant: config.assistantBackground, tools: config.toolBackground,
+        } })
         ui = new TerminalUi({
           send: (text) => { serialize(() => send(text)) },
           sessions: () => { serialize(pick) }, create: () => { serialize(create) }, cancel,
           tools: () => { serialize(inspectTools) }, exit: () => { exit(0) },
-        }, config.completionDepth, config.completionFiles, {
-          input: config.inputBackground, user: config.userBackground, assistant: config.assistantBackground, tools: config.toolBackground,
-        })
+        }, config.completionDepth, config.completionFiles, tints)
         const startupSignal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.startupTimeoutMs)])
         const url = config.connect ?? (server = await startServer(config.backendProfile, config.port, config.startupTimeoutMs,
           config.shutdownTimeoutMs, lifetime.signal, text => ui?.status(text))).url

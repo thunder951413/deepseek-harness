@@ -25,7 +25,7 @@ function detailRows(call: ToolCall, width: number): string[] {
   const cut = rows.length > DETAIL_ROWS
   const shown = rows.slice(0, DETAIL_ROWS).map(({ row, line }, index) => {
     const text = cut && index === DETAIL_ROWS - 1 ? `${Array.from(row).slice(0, -1).join('')}…` : row
-    return `${INDENT}${line.startsWith('+ ') ? color.green(text) : line.startsWith('- ') ? color.red(text) : color.dim(text)}`
+    return `${INDENT}${line.startsWith('+ ') ? color.green(text) : line.startsWith('- ') ? color.red(text) : text}`
   })
   return [...shown, ...Array.from({ length: DETAIL_ROWS - shown.length }, () => '')]
 }
@@ -41,7 +41,7 @@ function detailRows(call: ToolCall, width: number): string[] {
 export function renderActivity(activity: TerminalActivity, seconds: number, width: number): string[] {
   const counts = activity.calls === 0 ? ''
     : ` · ${String(activity.calls)} tool call${activity.calls === 1 ? '' : 's'}${activity.failed > 0 ? ` · ${String(activity.failed)} failed` : ''}`
-  const status = color.dim(truncateToWidth(`✻ Working… ${String(seconds)}s${counts} · Ctrl-C to stop`, width))
+  const status = truncateToWidth(`✻ Working… ${String(seconds)}s${counts} · Ctrl-C to stop`, width)
   const call = activity.latest
   if (call === undefined) return [status]
   const mark = call.state === 'failed' ? color.red('●') : call.state === 'running' ? color.yellow('●') : color.green('●')

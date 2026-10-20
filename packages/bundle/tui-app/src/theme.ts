@@ -28,6 +28,15 @@ export function inputBackground(hex: string, level = colorLevel(process.env)): (
 }
 
 /**
+ * Build the painter for the mid-grey lines between conversation blocks.
+ * @param level - terminal color depth; defaults to the current environment's.
+ * @returns plain text without color, the terminal's bright black with 16 colors, otherwise grey 244.
+ */
+export function separatorColor(level = colorLevel(process.env)): (text: string) => string {
+  return level === 0 ? text => text : level === 1 ? text => new Chalk({ level }).gray(text) : new Chalk({ level }).ansi256(244)
+}
+
+/**
  * Build a background painter for message and tool blocks.
  * These tints are only a few steps from the terminal background, so a 16-color terminal would show
  * them as plain black or grey blocks; they need 256 colors or more.

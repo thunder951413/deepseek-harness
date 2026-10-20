@@ -9,7 +9,8 @@ import { assertNever } from '@deepseek-ai/dsh-util-values'
 import { terminalCommands, ProjectCompletion } from './completion.ts'
 import { renderActivity } from './activity.ts'
 import { renderStatus, type StatusItem } from './status-bar.ts'
-import { blockBackground, color, editorTheme, inputBackground, markdownTheme, selectTheme } from './theme.ts'
+import { blockBackground, color, editorTheme, inputBackground, markdownTheme, selectTheme, separatorColor } from './theme.ts'
+import type { Tints } from './appearance.ts'
 import { terminalText, type TerminalActivity, type TerminalEntry, type TerminalView } from './transcript.ts'
 
 /** Keep the user's pre-existing shell scrollback during a width-change redraw. */
@@ -54,16 +55,12 @@ class ActivityPanel implements Component {
   invalidate(): void {}
 }
 
-/** Colors behind each kind of block, as `#rrggbb`; empty leaves the terminal background. */
-export interface Backgrounds {
-  /** The input block. */
-  readonly input: string
-  /** Your messages. */
-  readonly user: string
-  /** The assistant's answers. */
-  readonly assistant: string
-  /** Tool activity and task lists. */
-  readonly tools: string
+/** A mid-grey line across the terminal, used between blocks when they are not tinted. */
+class Separator implements Component {
+  private readonly paint = separatorColor()
+
+  render(width: number): string[] { return [this.paint('─'.repeat(width))] }
+  invalidate(): void {}
 }
 
 type Painter = ((text: string) => string) | undefined
@@ -76,7 +73,7 @@ interface Painters {
 }
 
 class MessageBlock extends Container {
-  constructor(entry: TerminalEntry, painters: Painters) {
+  constructor(entry: TerminalEntry, painters: Painters, separated: boolean) {
     super()
     const painter = entry.kind === 'user' ? painters.user : entry.kind === 'assistant' ? painters.assistant
       : entry.kind === 'tools' || entry.kind === 'todo' ? painters.tools : undefined
@@ -91,7 +88,7 @@ class MessageBlock extends Container {
         body.addChild(new Markdown(entry.text, 0, 0, markdownTheme))
         break
       case 'tools':
-        body.addChild(new Text(`${(entry.group?.failed ?? 0) > 0 ? color.red('●') : color.green('●')} ${color.dim(`${entry.text} · /tools`)}`, 0, 0))
+        body.addChild(new Text(`${(entry.group?.failed ?? 0) > 0 ? color.red('●') : color.green('●')} ${entry.text} · /tools`, 0, 0))
         break
       case 'todo':
         body.addChild(new Text(color.bold('Todos'), 0, 0))
@@ -108,7 +105,8 @@ class MessageBlock extends Container {
       default: assertNever(entry.kind)
     }
     this.addChild(body)
-    if (entry.kind !== 'tools') this.addChild(new Spacer(1))
+    if (separated) this.addChild(new Separator())
+    else if (entry.kind !== 'tools') this.addChild(new Spacer(1))
   }
 }
 
@@ -184,6 +182,7 @@ export class TerminalUi {
   private readonly editorBox: Box
   private readonly paint: Painter
   private readonly painters: Painters
+  private readonly separated: boolean
   private readonly panelBox: Box
   private readonly completion: ProjectCompletion
   private readonly blocks = new Map<string, { entry: TerminalEntry; component: Component }>()
@@ -207,10 +206,11 @@ export class TerminalUi {
    * @param completionFiles - maximum retained file suggestions.
    * @param backgrounds - colors behind the input block and the conversation blocks.
    */
-  constructor(actions: TerminalActions, completionDepth: number, completionFiles: number, backgrounds: Backgrounds) {
+  constructor(actions: TerminalActions, completionDepth: number, completionFiles: number, backgrounds: Tints) {
     this.paint = inputBackground(backgrounds.input)
     this.painters = { user: blockBackground(backgrounds.user), assistant: blockBackground(backgrounds.assistant),
       tools: blockBackground(backgrounds.tools) }
+    this.separated = this.painters.user === undefined && this.painters.assistant === undefined && this.painters.tools === undefined
     this.panelBox = new Box(this.painters.tools === undefined ? 0 : 1, 0, this.painters.tools)
     this.panelBox.addChild(this.panel)
     this.completion = new ProjectCompletion(process.cwd(), completionDepth, completionFiles, (message) => { this.status(message) })
@@ -334,7 +334,7 @@ export class TerminalUi {
       retained.add(entry.id)
       let block = this.blocks.get(entry.id)
       if (block?.entry !== entry) {
-        block = { entry, component: new MessageBlock(entry, this.painters) }
+        block = { entry, component: new MessageBlock(entry, this.painters, this.separated) }
         this.blocks.set(entry.id, block)
       }
       if (!view.working || entry.kind !== 'tools') children.push(block.component)

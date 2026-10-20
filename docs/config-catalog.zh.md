@@ -4259,7 +4259,7 @@ export type ToolPresentationMode = 'native' | 'ptc'
 ## `@deepseek-ai/dsh-tui-app`
 
 - `inject`: `tuiStartup`
-- `source`: [`packages/bundle/tui-app/src/index.ts:22`](../packages/bundle/tui-app/src/index.ts)
+- `source`: [`packages/bundle/tui-app/src/index.ts:24`](../packages/bundle/tui-app/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-specific terminal history bounds. */
@@ -4286,13 +4286,15 @@ export interface Config {
   completionFiles: number
   /** Reasoning effort applied to a new conversation when its model offers it; empty keeps the model's own default. */
   defaultReasoningEffort: string
-  /** `#rrggbb` color behind the input block; empty disables it. Use a light color on light terminals. */
+  /** `auto` tints blocks from the terminal's reported background; `dark` and `light` assume a typical one. */
+  appearance: 'auto' | 'dark' | 'light'
+  /** `#rrggbb` color behind the input block; empty uses the tint derived from the background. */
   inputBackground: string
-  /** `#rrggbb` tint behind your messages; empty disables it. Needs a 256-color terminal. */
+  /** `#rrggbb` tint behind your messages; empty uses the derived tint. Needs a 256-color terminal. */
   userBackground: string
-  /** `#rrggbb` tint behind the assistant's answers; empty disables it. Needs a 256-color terminal. */
+  /** `#rrggbb` tint behind the assistant's answers; empty uses the derived tint. Needs a 256-color terminal. */
   assistantBackground: string
-  /** `#rrggbb` tint behind tool activity and task lists; empty disables it. Needs a 256-color terminal. */
+  /** `#rrggbb` tint behind tool activity and task lists; empty uses the derived tint. Needs a 256-color terminal. */
   toolBackground: string
 }
 ```

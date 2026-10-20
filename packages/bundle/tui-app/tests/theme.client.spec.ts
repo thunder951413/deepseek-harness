@@ -45,3 +45,11 @@ it('estimates color depth and paints the input background only when enabled and 
   expect(blockBackground('#212a38')).toBeTypeOf(process.env.NO_COLOR === undefined && colorLevel(process.env) >= 2 ? 'function' : 'undefined')
   expect(inputBackground('#2b2f38')).toBeTypeOf(process.env.NO_COLOR === undefined ? 'function' : 'undefined')
 })
+
+it('draws separator lines in mid-grey, plain without color', async () => {
+  const { separatorColor } = await import('../src/theme.ts')
+  expect(separatorColor(0)('─')).toBe('─')
+  expect(separatorColor(1)('─')).toBe('\x1b[90m─\x1b[39m')
+  expect(separatorColor(3)('─')).toBe('\x1b[38;5;244m─\x1b[39m')
+  expect(separatorColor()('─')).toContain('─')
+})

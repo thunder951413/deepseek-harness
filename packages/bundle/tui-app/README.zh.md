@@ -53,7 +53,7 @@ kind: "package-bundle"
 
 终端应答其所选 Session 的审批和提问请求。其他 Session 的请求继续交给 Web 应答器。审批默认拒绝；只有 **Allow once** 会授权操作。关闭应用会取消待处理输入。操作失败显示在编辑区旁，发送失败时保留编辑框内容。
 
-配置补丁可设置 `tui` 行的 `historyMessages`（默认 200）和 `transcriptCharacters`（默认 200000）。文件补全使用 `completionDepth`（默认 8）和 `completionFiles`（默认 10000）限制遍历深度和保留的索引。这些设置限制显示的历史范围，不会删除持久化日志。`defaultReasoningEffort`（默认 `high`）会应用到每个新对话，前提是其模型提供该档位；已有自己记录选择的对话不会被改动，设为空值则保持模型默认。`inputBackground`（默认 `#2b2f38`）为输入区着色；浅色终端可改为其他 `#rrggbb` 颜色，设为空值则关闭，设置 `NO_COLOR` 也会关闭。你的消息、助手的回答和工具活动（工作面板、调用摘要和任务清单）各有一层淡色底色：`userBackground`（默认 `#212a38`）、`assistantBackground`（默认 `#1c2028`）和 `toolBackground`（默认 `#1f2621`）。它们与深色终端背景只差几个色阶，既能区分各块又不显沉重；需要 256 色或更多颜色的终端，设为空值即可去掉某一种。
+配置补丁可设置 `tui` 行的 `historyMessages`（默认 200）和 `transcriptCharacters`（默认 200000）。文件补全使用 `completionDepth`（默认 8）和 `completionFiles`（默认 10000）限制遍历深度和保留的索引。这些设置限制显示的历史范围，不会删除持久化日志。`defaultReasoningEffort`（默认 `high`）会应用到每个新对话，前提是其模型提供该档位；已有自己记录选择的对话不会被改动，设为空值则保持模型默认。块的颜色跟随终端：启动时向终端询问其背景色，再混入少量一种色相，你的消息偏蓝，助手的回答是淡中性色，工具活动（工作面板、调用摘要和任务清单）偏绿，输入框是中性色，因此无论深色还是浅色终端，各块都只与周围略有差别。终端不回应而且 `COLORFGBG` 也没有说明时，各块没有底色，改用中灰色线条分隔。`appearance`（默认 `auto`）可设为 `dark` 或 `light` 以跳过检测；`inputBackground`、`userBackground`、`assistantBackground` 和 `toolBackground` 可用 `#rrggbb` 颜色覆盖某一块。底色需要 256 色或更多颜色的终端（输入框需要 16 色）；设置 `NO_COLOR` 会关闭全部底色并保留灰色线条。检测只在启动时进行，更改终端主题后请重新启动。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现
