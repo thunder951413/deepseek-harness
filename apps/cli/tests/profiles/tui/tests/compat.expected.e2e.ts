@@ -17,11 +17,12 @@ const command = process.env.DSH_TUI_COMPAT_COMMAND
 const home = process.env.DSH_TUI_COMPAT_HOME
 
 it.skipIf(command === undefined || home === undefined || process.platform === 'win32')(
-  'opens a conversation, reads optional features, lists history, and exits through an installed dsh', async () => {
+  'opens a conversation, reads optional features, lists history, runs Host commands, and exits through an installed dsh', async () => {
     if (command === undefined || home === undefined) return
     const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-compat-'))
     const terminal: TerminalType = new Terminal({ cols: 120, rows: 40, allowProposedApi: true })
-    const child = spawn(command, ['--profile', 'tui'], { cwd, cols: 120, rows: 40, name: 'xterm-256color',
+    // Loopback keeps the probe independent of the runner's network interfaces.
+    const child = spawn(command, ['--profile', 'tui', '--host', 'loopback'], { cwd, cols: 120, rows: 40, name: 'xterm-256color',
       env: { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1', NO_COLOR: '1' } })
     const exited = Promise.withResolvers<number>()
     child.onExit(({ exitCode }) => { exited.resolve(exitCode) })
@@ -40,7 +41,26 @@ it.skipIf(command === undefined || home === undefined || process.platform === 'w
       await expect.poll(screen, { timeout: 20000 }).toContain('Conversations ·')
       child.write('\x1b')
       await expect.poll(screen, { timeout: 20000 }).not.toContain('Conversations ·')
-      expect(screen()).not.toMatch(/incompatible|cannot provide|adapter/iu)
+      // Work modes, the Host command list, permission presets, command execution, and the skill catalog.
+      child.write('/mode\r')
+      await expect.poll(screen, { timeout: 20000 }).toContain('Work mode')
+      child.write('\x1b')
+      await expect.poll(screen, { timeout: 20000 }).not.toContain('Work mode')
+      child.write('/permission\r')
+      await expect.poll(screen, { timeout: 20000 }).toContain('Permission')
+      child.write('\x1b')
+      await expect.poll(screen, { timeout: 20000 }).not.toContain('Find:')
+      child.write('/compact\r')
+      await expect.poll(screen, { timeout: 20000 }).toMatch(/No compactable history|Compacted|Compaction/u)
+      expect(screen()).not.toContain('no longer offers')
+      child.write('/skills\r')
+      await expect.poll(screen, { timeout: 20000 }).toMatch(/Find:|No skills are available/u)
+      if (screen().includes('Find:')) {
+        // Wait for the picker to close: an Escape directly followed by Ctrl-Q would arrive as Alt+Ctrl-Q.
+        child.write('\x1b')
+        await expect.poll(screen, { timeout: 20000 }).not.toContain('Find:')
+      }
+      expect(screen()).not.toMatch(/incompatible|cannot provide|adapter|Error:/iu)
       child.write('\x11')
       expect(await exited.promise).toBe(0)
     } catch (error) {
@@ -51,4 +71,4 @@ it.skipIf(command === undefined || home === undefined || process.platform === 'w
       terminal.dispose()
       await rm(cwd, { recursive: true, force: true })
     }
-  })
+  }, 300_000)

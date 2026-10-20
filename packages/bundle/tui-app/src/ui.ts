@@ -57,7 +57,7 @@ class StatusBar implements Component {
     const rows = [...connection, ...renderStatus([...this.readings, hint], this.right, width, color.dim)]
     if (this.layout === 'detailed' || (this.layout === 'auto' && rows.length - connection.length <= this.readings.length + 1)) return rows
     return [...connection, truncateToWidth(this.readings[0] ?? '', width),
-      truncateToWidth(this.right[1]?.text ?? '', width), truncateToWidth(hint, width)]
+      truncateToWidth(this.right[0]?.text ?? '', width), truncateToWidth(hint, width)]
   }
   invalidate(): void {}
 }

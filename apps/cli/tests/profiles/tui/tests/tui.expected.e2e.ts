@@ -80,7 +80,9 @@ process.once('exit', () => { process.stdout.write('Console restored: ' + String(
     '- insert:', '    - id: terminal-fixture',
     `      name: ${pathToFileURL(fixture).href}`, '',
   ].join('\n'))
-  const terminal: TerminalType = new Terminal({ cols: 140, rows: 44, allowProposedApi: true })
+  // The scenario prints far more than xterm's default 1000-line scrollback; a larger buffer keeps the shell
+  // history the run must preserve, so only the terminal client can lose it.
+  const terminal: TerminalType = new Terminal({ cols: 140, rows: 44, scrollback: 100_000, allowProposedApi: true })
   let output = ''
   let prefix = ''
   let total = 0
